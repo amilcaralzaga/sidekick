@@ -11,14 +11,14 @@ const { continueDir } = require("./utils");
 
 async function installNodeModulesInGui() {
   process.chdir(path.join(continueDir, "gui"));
-  execCmdSync("npm install");
-  console.log("[info] npm install in gui completed");
+  execCmdSync("CI=true pnpm install");
+  console.log("[info] pnpm install in gui completed");
 }
 
 async function installNodeModulesInVscode() {
   process.chdir(path.join(continueDir, "extensions", "vscode"));
-  execCmdSync("npm install");
-  console.log("[info] npm install in extensions/vscode completed");
+  execCmdSync("CI=true pnpm install");
+  console.log("[info] pnpm install in extensions/vscode completed");
 }
 
 process.on("message", (msg) => {

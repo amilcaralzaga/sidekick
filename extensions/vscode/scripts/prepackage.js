@@ -14,7 +14,11 @@ const { copySqlite } = require("./download-copy-sqlite");
 const { generateAndCopyConfigYamlSchema } = require("./generate-copy-config");
 const { installAndCopyNodeModules } = require("./install-copy-nodemodule");
 const { npmInstall } = require("./npm-install");
-const { writeBuildTimestamp, continueDir } = require("./utils");
+const {
+  writeBuildTimestamp,
+  continueDir,
+  downloadRipgrepBinary,
+} = require("./utils");
 
 // Clear folders that will be packaged to ensure clean slate
 rimrafSync(path.join(__dirname, "..", "bin"));
@@ -79,14 +83,53 @@ void (async () => {
 
   if (!skipInstalls) {
     const installStart = Date.now();
-    console.log(`[timer] Starting npm installs at ${new Date().toISOString()}`);
+    console.log(
+      `[timer] Starting pnpm installs at ${new Date().toISOString()}`,
+    );
     await Promise.all([generateAndCopyConfigYamlSchema(), npmInstall()]);
     console.log(
-      `[timer] npm installs completed in ${Date.now() - installStart}ms`,
+      `[timer] pnpm installs completed in ${Date.now() - installStart}ms`,
     );
   }
 
   process.chdir(path.join(continueDir, "gui"));
+
+  const guiIndexJs = path.join(
+    continueDir,
+    "gui",
+    "dist",
+    "assets",
+    "index.js",
+  );
+  const guiIndexCss = path.join(
+    continueDir,
+    "gui",
+    "dist",
+    "assets",
+    "index.css",
+  );
+  if (!fs.existsSync(guiIndexJs) || !fs.existsSync(guiIndexCss)) {
+    console.log("[info] gui dist missing; running pnpm run build:dist");
+    execCmdSync("pnpm run build:dist");
+  }
+
+  const repomapSrc = path.join(continueDir, "tools", "repomap", "repomap.py");
+  const repomapDestDir = path.join(
+    continueDir,
+    "extensions",
+    "vscode",
+    "tools",
+    "repomap",
+  );
+  if (fs.existsSync(repomapSrc)) {
+    fs.mkdirSync(repomapDestDir, { recursive: true });
+    fs.copyFileSync(repomapSrc, path.join(repomapDestDir, "repomap.py"));
+    console.log("[info] Copied repomap sidecar script");
+  } else {
+    console.warn(
+      `[warn] repomap sidecar not found at ${repomapSrc}; RepoMap provider may be unavailable`,
+    );
+  }
 
   // Copy over the dist folder to the JetBrains extension //
   const intellijExtensionWebviewPath = path.join(
@@ -374,6 +417,12 @@ void (async () => {
       },
     );
   });
+
+  if (!skipInstalls) {
+    await downloadRipgrepBinary(target);
+  } else {
+    console.log("[info] Skipping ripgrep download because SKIP_INSTALLS=true");
+  }
 
   // Copy node_modules for pre-built binaries
   const NODE_MODULES_TO_COPY = ["@lancedb", "@vscode/ripgrep", "workerpool"];

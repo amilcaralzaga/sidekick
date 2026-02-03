@@ -60,6 +60,13 @@ interface ToolUseState {
   input: string;
 }
 
+type AwsCredentials = {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+  expiration?: Date;
+};
+
 export class BedrockApi implements BaseLlmApi {
   constructor(protected config: BedrockConfig) {
     if (config.env?.accessKeyId || config?.env?.secretAccessKey) {
@@ -76,7 +83,7 @@ export class BedrockApi implements BaseLlmApi {
     }
   }
 
-  async getCreds() {
+  async getCreds(): Promise<AwsCredentials> {
     if (this.config?.env?.accessKeyId && this.config?.env?.secretAccessKey) {
       return {
         accessKeyId: this.config.env.accessKeyId,

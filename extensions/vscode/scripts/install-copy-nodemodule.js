@@ -34,7 +34,18 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
     process.chdir(tempDir);
 
     // Initialize a new package.json and install the package
-    execCmdSync(`npm init -y && npm i -f ${packageName} --no-save`);
+    const tempPackageJson = path.join(tempDir, "package.json");
+    if (!fs.existsSync(tempPackageJson)) {
+      fs.writeFileSync(
+        tempPackageJson,
+        JSON.stringify(
+          { name: "continue-temp", version: "1.0.0", private: true },
+          null,
+          2,
+        ),
+      );
+    }
+    execCmdSync(`pnpm add ${packageName}`);
 
     console.log(
       `Contents of: ${packageName}`,
