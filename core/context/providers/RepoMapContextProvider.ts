@@ -21,9 +21,13 @@ const DEFAULT_MAX_HOTSPOTS = 20;
 const DEFAULT_MAX_TREE_DEPTH = 4;
 const DEFAULT_MAX_FILE_KB = 512;
 const DEFAULT_MAX_SCAN_LINES = 4000;
+const DEFAULT_MAX_FILES = 5000;
+const DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const DEFAULT_CACHE_TTL_SECONDS = 600;
+const DEFAULT_DIRTY_TTL_SECONDS = 120;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;
+const DEFAULT_ERROR_TRIM = 1200;
 
 const MODULE_DIR =
   typeof __dirname === "undefined"
@@ -39,8 +43,12 @@ interface RepoMapOptions {
   maxHotspots?: number;
   maxTreeDepth?: number;
   maxFileKb?: number;
+  maxFileBytes?: number;
   maxScanLines?: number;
+  maxFiles?: number;
+  maxTotalBytes?: number;
   cacheTtlSeconds?: number;
+  dirtyCacheTtlSeconds?: number;
   include?: string[] | string;
   exclude?: string[] | string;
   pythonPath?: string;
@@ -86,6 +94,37 @@ const hashKey = (value: string): string => {
   return crypto.createHash("sha256").update(value).digest("hex").slice(0, 24);
 };
 
+const trimErrorText = (
+  value: string | undefined,
+  limit = DEFAULT_ERROR_TRIM,
+) => {
+  if (!value) {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, limit)}…`;
+};
+
+const formatFailureContent = (reason: string, error?: Error) => {
+  const stderr = trimErrorText((error as any)?.stderr);
+  const message = trimErrorText(error?.message);
+  const lines: string[] = [`RepoMap unavailable: ${reason}`];
+  if (message) {
+    lines.push(`Error: ${message}`);
+  }
+  if (stderr) {
+    lines.push("Stderr:");
+    lines.push(stderr);
+  }
+  lines.push(
+    "Remediation: install Python 3 or set `pythonPath` in your repo-map context provider params.",
+  );
+  return lines.join("\n");
+};
+
 const execFileAsync = (
   command: string,
   args: string[],
@@ -105,9 +144,16 @@ const execFileAsync = (
         if (error) {
           const err = new Error(
             `Repomap failed (${command}): ${String(error.message || error)}`,
-          ) as Error & { stdout?: string; stderr?: string };
+          ) as Error & {
+            stdout?: string;
+            stderr?: string;
+            code?: string | number;
+            errno?: number;
+          };
           err.stdout = stdout?.toString();
           err.stderr = stderr?.toString();
+          err.code = (error as unknown as { code?: string | number }).code;
+          err.errno = (error as unknown as { errno?: number }).errno;
           reject(err);
           return;
         }
@@ -301,14 +347,33 @@ class RepoMapContextProvider extends BaseContextProvider {
       toNumber(options?.maxTreeDepth, DEFAULT_MAX_TREE_DEPTH),
       DEFAULT_MAX_TREE_DEPTH,
     );
-    const maxFileKb = toNumber(options?.maxFileKb, DEFAULT_MAX_FILE_KB);
+    const maxFileKb = clampMax(
+      toNumber(options?.maxFileKb, DEFAULT_MAX_FILE_KB),
+      DEFAULT_MAX_FILE_KB,
+    );
+    const maxFileBytes = clampMax(
+      toNumber(options?.maxFileBytes, maxFileKb * 1024),
+      maxFileKb * 1024,
+    );
     const maxScanLines = toNumber(
       options?.maxScanLines,
       DEFAULT_MAX_SCAN_LINES,
     );
+    const maxFiles = clampMax(
+      toNumber(options?.maxFiles, DEFAULT_MAX_FILES),
+      DEFAULT_MAX_FILES,
+    );
+    const maxTotalBytes = clampMax(
+      toNumber(options?.maxTotalBytes, DEFAULT_MAX_TOTAL_BYTES),
+      DEFAULT_MAX_TOTAL_BYTES,
+    );
     const cacheTtlSeconds = toNumber(
       options?.cacheTtlSeconds,
       DEFAULT_CACHE_TTL_SECONDS,
+    );
+    const dirtyCacheTtlSeconds = toNumber(
+      options?.dirtyCacheTtlSeconds,
+      DEFAULT_DIRTY_TTL_SECONDS,
     );
 
     let gitHead = "";
@@ -322,11 +387,26 @@ class RepoMapContextProvider extends BaseContextProvider {
       gitHead = "";
     }
 
+    let isDirty = false;
+    try {
+      const [stdout] = await extras.ide.subprocess(
+        "git status --porcelain",
+        repoRootPath,
+      );
+      isDirty = stdout.trim().length > 0;
+    } catch {
+      isDirty = false;
+    }
+
     const cacheDir = getCacheDir(repoRootPath);
     const cacheKey = hashKey(`${repoRootPath}|${gitHead || "nogit"}`);
     const cachePath = path.join(cacheDir, `repomap_${cacheKey}.json`);
 
-    const cacheMaxAge = gitHead ? undefined : cacheTtlSeconds * 1000;
+    let cacheMaxAge = gitHead ? undefined : cacheTtlSeconds * 1000;
+    if (isDirty) {
+      const ttlSeconds = Math.min(cacheTtlSeconds, dirtyCacheTtlSeconds);
+      cacheMaxAge = ttlSeconds * 1000;
+    }
     const cached = readCache(cachePath, cacheMaxAge);
     if (cached) {
       return [
@@ -344,8 +424,7 @@ class RepoMapContextProvider extends BaseContextProvider {
         {
           name: "RepoMap",
           description: "Repo map (unavailable)",
-          content:
-            "RepoMap sidecar script not found. Expected tools/repomap/repomap.py.",
+          content: formatFailureContent("repomap.py not found"),
         },
       ];
     }
@@ -369,8 +448,14 @@ class RepoMapContextProvider extends BaseContextProvider {
       String(maxTreeDepth),
       "--max-file-kb",
       String(maxFileKb),
+      "--max-file-bytes",
+      String(maxFileBytes),
       "--max-scan-lines",
       String(maxScanLines),
+      "--max-files",
+      String(maxFiles),
+      "--max-total-bytes",
+      String(maxTotalBytes),
     ];
 
     for (const pattern of includeGlobs) {
@@ -410,11 +495,15 @@ class RepoMapContextProvider extends BaseContextProvider {
       }
     }
 
+    const missingPython =
+      (lastError as any)?.code === "ENOENT" || (lastError as any)?.errno === -2;
+    const reason = missingPython ? "python3 not found" : "repomap.py failed";
+
     return [
       {
         name: "RepoMap",
         description: "Repo map (failed)",
-        content: `RepoMap generation failed. ${lastError?.message ?? ""}`,
+        content: formatFailureContent(reason, lastError),
       },
     ];
   }

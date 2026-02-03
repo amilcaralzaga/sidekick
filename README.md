@@ -57,6 +57,23 @@ Trigger workflows from [VS Code](https://marketplace.visualstudio.com/items?item
 
 </div>
 
+## RepoMap Context Provider
+
+Use `repo-map` to attach a compact, deterministic overview of your repo (tree, top files, symbols, hotspots). It runs locally via `tools/repomap/repomap.py`, so it works offline.
+
+Requires Python 3 on your PATH (or set `pythonPath` in the provider params). Budgets are configurable (tree size, symbol count, file/byte caps), and you can disable it by removing the provider from `config.yaml`.
+
+## Authorship Mode
+
+Authorship Mode enforces “Decision → Execution → Attribution” for non-trivial AI edits. You’ll be prompted for a short decision note and classification before applying larger changes, while small predictable edits can be auto-approved. Entries are logged to `.sidekick/decision-log.jsonl` as metadata only (no code or diffs).
+
+Settings (VS Code):
+
+- `sidekick.authorshipMode.enabled` (default `true`)
+- `sidekick.authorshipMode.autoApproveMaxChangedLines` (default `15`)
+- `sidekick.authorshipMode.logPath` (default `.sidekick/decision-log.jsonl`)
+- `sidekick.authorshipMode.requireDecisionForConfigFiles` (default `true`)
+
 ## Contributing
 
 Read the [contributing guide](https://github.com/continuedev/continue/blob/main/CONTRIBUTING.md), and

@@ -258,7 +258,26 @@ async function copySqliteBinary() {
 }
 
 async function downloadRipgrepBinary(target) {
+  const hostTarget = `${process.platform}-${process.arch}`;
+  const exe = target.startsWith("win") ? ".exe" : "";
+  const existingRgPath = path.join(
+    "node_modules",
+    "@vscode",
+    "ripgrep",
+    "bin",
+    `rg${exe}`,
+  );
+
+  // If we're packaging for the host platform and ripgrep already exists, avoid a forced download.
+  if (target === hostTarget && fs.existsSync(existingRgPath)) {
+    console.log(
+      "[info] ripgrep binary already present for host target; skipping download",
+    );
+    return;
+  }
+
   console.log("[info] Downloading pre-built ripgrep binary");
+  const hadExisting = fs.existsSync(existingRgPath);
   rimrafSync("node_modules/@vscode/ripgrep/bin");
   fs.mkdirSync("node_modules/@vscode/ripgrep/bin", { recursive: true });
 
@@ -277,20 +296,32 @@ async function downloadRipgrepBinary(target) {
       "https://github.com/microsoft/ripgrep-prebuilt/releases/download/v13.0.0-10/ripgrep-v13.0.0-10-x86_64-pc-windows-msvc.zip",
   }[target];
 
-  if (target.startsWith("win")) {
-    execCmdSync(
-      `curl -L -o node_modules/@vscode/ripgrep/bin/build.zip ${downloadUrl}`,
-    );
-    execCmdSync("cd node_modules/@vscode/ripgrep/bin && unzip build.zip");
-    fs.unlinkSync("node_modules/@vscode/ripgrep/bin/build.zip");
-  } else {
-    execCmdSync(
-      `curl -L -o node_modules/@vscode/ripgrep/bin/build.tar.gz ${downloadUrl}`,
-    );
-    execCmdSync(
-      "cd node_modules/@vscode/ripgrep/bin && tar -xvzf build.tar.gz",
-    );
-    fs.unlinkSync("node_modules/@vscode/ripgrep/bin/build.tar.gz");
+  try {
+    if (target.startsWith("win")) {
+      execCmdSync(
+        `curl -L -o node_modules/@vscode/ripgrep/bin/build.zip ${downloadUrl}`,
+      );
+      execCmdSync("cd node_modules/@vscode/ripgrep/bin && unzip build.zip");
+      fs.unlinkSync("node_modules/@vscode/ripgrep/bin/build.zip");
+    } else {
+      execCmdSync(
+        `curl -L -o node_modules/@vscode/ripgrep/bin/build.tar.gz ${downloadUrl}`,
+      );
+      execCmdSync(
+        "cd node_modules/@vscode/ripgrep/bin && tar -xvzf build.tar.gz",
+      );
+      fs.unlinkSync("node_modules/@vscode/ripgrep/bin/build.tar.gz");
+    }
+  } catch (e) {
+    // Fail-soft for host-target packaging: if download fails but we had an existing binary,
+    // keep it to avoid breaking offline packaging runs.
+    if (target === hostTarget && hadExisting) {
+      console.warn(
+        "[warn] ripgrep download failed, but an existing host binary was present; continuing",
+      );
+      return;
+    }
+    throw e;
   }
 }
 

@@ -15,9 +15,17 @@ import { ApplyAbortManager } from "core/edit/applyAbortManager";
 import { EDIT_MODE_STREAM_ID } from "core/edit/constants";
 import { stripImages } from "core/util/messageContent";
 import { getLastNPathParts } from "core/util/uri";
+import { localPathOrUriToPath } from "core/util/pathToUri";
 import { editOutcomeTracker } from "../../extension/EditOutcomeTracker";
+import { DecisionLog } from "../../authorship/DecisionLog";
+import {
+  buildChangeSummary,
+  ensureDecisionForChange,
+  getAuthorshipConfig,
+} from "../../authorship/authorship";
 import { VerticalDiffHandler, VerticalDiffHandlerOptions } from "./handler";
 import { getFirstChangedLine } from "./util";
+import * as path from "path";
 
 export interface VerticalDiffCodeLens {
   start: number;
@@ -184,6 +192,36 @@ export class VerticalDiffManager {
       return;
     }
 
+    const authorshipConfig = getAuthorshipConfig();
+    let decisionResult = null;
+    let changeSummary = null;
+    let filesTouched: string[] = [];
+    if (accept && authorshipConfig.enabled) {
+      changeSummary = buildChangeSummary({
+        fileUri,
+        linesAdded: block.numGreen,
+        linesRemoved: block.numRed,
+        isNewFile: false,
+        isMultiFile: this.fileUriToCodeLens.size > 1,
+      });
+      decisionResult = await ensureDecisionForChange(
+        changeSummary,
+        authorshipConfig,
+      );
+      if (!decisionResult) {
+        return;
+      }
+
+      const filePath = localPathOrUriToPath(fileUri);
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+        vscode.Uri.parse(fileUri),
+      );
+      const relativePath = workspaceFolder?.uri.fsPath
+        ? path.relative(workspaceFolder.uri.fsPath, filePath)
+        : filePath;
+      filesTouched = [relativePath];
+    }
+
     // Disable listening to file changes while continue makes changes
     this.disableDocumentChangeListener();
 
@@ -203,6 +241,24 @@ export class VerticalDiffManager {
     }
 
     this.refreshCodeLens();
+
+    if (accept && authorshipConfig.enabled && decisionResult && changeSummary) {
+      const decisionLog = new DecisionLog(this.ide);
+      await decisionLog.record(
+        {
+          operationType: "applyDiffBlock",
+          predictability: decisionResult.predictability,
+          decisionNote: decisionResult.decisionNote,
+          filesTouched,
+          diffStats: {
+            linesAdded: changeSummary.linesAdded,
+            linesRemoved: changeSummary.linesRemoved,
+          },
+          aiActionSummary: `Applied AI diff block to ${filesTouched.join(", ") || "file"}`,
+        },
+        fileUri,
+      );
+    }
   }
 
   async streamDiffLines(

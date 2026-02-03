@@ -45,7 +45,15 @@ async function installNodeModuleInTempDirAndCopyToCurrent(packageName, toCopy) {
         ),
       );
     }
-    execCmdSync(`pnpm add ${packageName}`);
+    // Prefer offline install when possible (packaging should work in restricted environments).
+    try {
+      execCmdSync(`pnpm add --offline ${packageName}`);
+    } catch (e) {
+      console.warn(
+        `[warn] pnpm add --offline failed for ${packageName}; retrying online`,
+      );
+      execCmdSync(`pnpm add ${packageName}`);
+    }
 
     console.log(
       `Contents of: ${packageName}`,

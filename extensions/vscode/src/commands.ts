@@ -36,6 +36,8 @@ import {
 } from "./autocomplete/statusBar";
 import { ContinueConsoleWebviewViewProvider } from "./ContinueConsoleWebviewViewProvider";
 import { ContinueGUIWebviewViewProvider } from "./ContinueGUIWebviewViewProvider";
+import { DecisionLog } from "./authorship/DecisionLog";
+import { formatCommitNote } from "./authorship/authorship";
 import { processDiff } from "./diff/processDiff";
 import { VerticalDiffManager } from "./diff/vertical/manager";
 import EditDecorationManager from "./quickEdit/EditDecorationManager";
@@ -478,6 +480,21 @@ const getCommandsMap: (
     },
     "continue.applyCodeFromChat": () => {
       void sidebar.webviewProtocol.request("applyCodeFromChat", undefined);
+    },
+    "sidekick.copyAuthorshipCommitNote": async () => {
+      const decisionLog = new DecisionLog(ide);
+      const [entry] = await decisionLog.readRecent(1);
+      if (!entry) {
+        void vscode.window.showInformationMessage(
+          "No authorship decisions found yet.",
+        );
+        return;
+      }
+      const note = formatCommitNote(entry);
+      await vscode.env.clipboard.writeText(note);
+      void vscode.window.showInformationMessage(
+        "Authorship commit note copied to clipboard.",
+      );
     },
     "continue.openConfigPage": () => {
       vscode.commands.executeCommand("continue.navigateTo", "/config", false);

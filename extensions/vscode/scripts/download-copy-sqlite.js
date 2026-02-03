@@ -7,6 +7,27 @@ const { rimrafSync } = require("rimraf");
 
 const { execCmdSync } = require("../../../scripts/util");
 
+function normalizeTarget(platform, arch) {
+  let os = platform;
+  let a = arch;
+  if (os === "alpine") os = "linux";
+  if (a === "armhf") a = "arm64";
+  return `${os}-${a}`;
+}
+
+function sqliteBindingExists() {
+  try {
+    return fs.existsSync(
+      path.join(
+        __dirname,
+        "../../../core/node_modules/sqlite3/build/Release/node_sqlite3.node",
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * download a file using fetch API
  * @param {string} url
@@ -54,12 +75,37 @@ async function downloadSqlite(target, targetDir) {
 }
 
 async function installAndCopySqlite(target) {
-  // Replace the installed with pre-built
+  const hostTarget = normalizeTarget(process.platform, process.arch);
+
+  // If we're packaging for the host platform and a binary already exists, avoid a forced download.
+  if (target === hostTarget && sqliteBindingExists()) {
+    console.log(
+      "[info] sqlite3 binary already present for host target; skipping download",
+    );
+    return;
+  }
+
+  // Replace the installed with pre-built (best-effort: if download fails but we have an existing
+  // host binary, keep going to avoid breaking packaging in offline environments).
   console.log("[info] Downloading pre-built sqlite3 binary");
-  rimrafSync("../../core/node_modules/sqlite3/build");
-  await downloadSqlite(target, "../../core/node_modules/sqlite3/build.tar.gz");
-  execCmdSync("cd ../../core/node_modules/sqlite3 && tar -xvzf build.tar.gz");
-  fs.unlinkSync("../../core/node_modules/sqlite3/build.tar.gz");
+  const hadExisting = sqliteBindingExists();
+  try {
+    rimrafSync("../../core/node_modules/sqlite3/build");
+    await downloadSqlite(
+      target,
+      "../../core/node_modules/sqlite3/build.tar.gz",
+    );
+    execCmdSync("cd ../../core/node_modules/sqlite3 && tar -xvzf build.tar.gz");
+    fs.unlinkSync("../../core/node_modules/sqlite3/build.tar.gz");
+  } catch (e) {
+    if (target === hostTarget && hadExisting && sqliteBindingExists()) {
+      console.warn(
+        "[warn] sqlite3 download failed, but an existing host binary is present; continuing",
+      );
+      return;
+    }
+    throw e;
+  }
 }
 
 async function installAndCopyEsbuild(target) {

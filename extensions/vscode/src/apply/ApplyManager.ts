@@ -1,6 +1,7 @@
 import { ConfigHandler } from "core/config/ConfigHandler";
 import { applyCodeBlock } from "core/edit/lazy/applyCodeBlock";
 import { getUriPathBasename } from "core/util/uri";
+import * as path from "path";
 import * as vscode from "vscode";
 
 import { ApplyToFilePayload } from "core";
@@ -13,6 +14,13 @@ import { getMarkdownLanguageTagForFile } from "core/util";
 import { VerticalDiffManager } from "../diff/vertical/manager";
 import { VsCodeIde } from "../VsCodeIde";
 import { VsCodeWebviewProtocol } from "../webviewProtocol";
+import { DecisionLog } from "../authorship/DecisionLog";
+import {
+  buildChangeSummary,
+  computeDiffStats,
+  ensureDecisionForChange,
+  getAuthorshipConfig,
+} from "../authorship/authorship";
 
 /**
  * Handles applying text/code to files including diff generation and streaming
@@ -70,6 +78,7 @@ export class ApplyManager {
           text,
           streamId,
           toolCallId,
+          originalFileContent,
         );
       }
     } else {
@@ -78,6 +87,7 @@ export class ApplyManager {
         text,
         streamId,
         toolCallId,
+        originalFileContent,
       );
     }
   }
@@ -100,7 +110,39 @@ export class ApplyManager {
     text: string,
     streamId: string,
     toolCallId?: string,
+    originalFileContent?: string,
   ) {
+    const authorshipConfig = getAuthorshipConfig();
+    const fileUri = editor.document.uri.toString();
+
+    let decisionResult = null;
+    let changeSummary = null;
+    if (authorshipConfig.enabled) {
+      const diffStats = computeDiffStats(originalFileContent ?? "", text);
+      changeSummary = buildChangeSummary({
+        fileUri,
+        linesAdded: diffStats.linesAdded,
+        linesRemoved: diffStats.linesRemoved,
+        isNewFile: true,
+        isMultiFile: false,
+      });
+      decisionResult = await ensureDecisionForChange(
+        changeSummary,
+        authorshipConfig,
+        { forceDecision: true },
+      );
+      if (!decisionResult) {
+        await this.webviewProtocol.request("updateApplyState", {
+          streamId,
+          status: "closed",
+          numDiffs: 0,
+          fileContent: originalFileContent ?? "",
+          toolCallId,
+        });
+        return;
+      }
+    }
+
     await editor.edit((builder) =>
       builder.insert(new vscode.Position(0, 0), text),
     );
@@ -112,6 +154,30 @@ export class ApplyManager {
       fileContent: text,
       toolCallId,
     });
+
+    if (authorshipConfig.enabled && decisionResult && changeSummary) {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+        editor.document.uri,
+      );
+      const relativePath = workspaceFolder?.uri.fsPath
+        ? path.relative(workspaceFolder.uri.fsPath, editor.document.uri.fsPath)
+        : editor.document.uri.fsPath;
+      const decisionLog = new DecisionLog(this.ide);
+      await decisionLog.record(
+        {
+          operationType: "createFile",
+          predictability: decisionResult.predictability,
+          decisionNote: decisionResult.decisionNote,
+          filesTouched: [relativePath],
+          diffStats: {
+            linesAdded: changeSummary.linesAdded,
+            linesRemoved: changeSummary.linesRemoved,
+          },
+          aiActionSummary: "Created file from AI suggestion",
+        },
+        fileUri,
+      );
+    }
   }
 
   private async handleExistingDocument(
@@ -119,6 +185,7 @@ export class ApplyManager {
     text: string,
     streamId: string,
     toolCallId?: string,
+    originalFileContent?: string,
   ) {
     const { config } = await this.configHandler.loadConfig();
     if (!config) {
@@ -148,12 +215,71 @@ export class ApplyManager {
     );
 
     if (isInstantApply) {
+      const authorshipConfig = getAuthorshipConfig();
+      let decisionResult = null;
+      if (authorshipConfig.enabled) {
+        const changeSummary = buildChangeSummary({
+          fileUri,
+          linesAdded: authorshipConfig.autoApproveMaxChangedLines + 1,
+          linesRemoved: 0,
+          isNewFile: false,
+          isMultiFile: false,
+        });
+        decisionResult = await ensureDecisionForChange(
+          changeSummary,
+          authorshipConfig,
+          { forceDecision: true },
+        );
+        if (!decisionResult) {
+          await this.webviewProtocol.request("updateApplyState", {
+            streamId,
+            status: "closed",
+            numDiffs: 0,
+            fileContent: originalFileContent ?? editor.document.getText(),
+            toolCallId,
+          });
+          return;
+        }
+      }
+
       await this.verticalDiffManager.streamDiffLines(
         diffLinesGenerator,
         isInstantApply,
         streamId,
         toolCallId,
       );
+
+      if (authorshipConfig.enabled && decisionResult) {
+        const finalContent = editor.document.getText();
+        const diffStats = computeDiffStats(
+          originalFileContent ?? "",
+          finalContent,
+        );
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+          editor.document.uri,
+        );
+        const relativePath = workspaceFolder?.uri.fsPath
+          ? path.relative(
+              workspaceFolder.uri.fsPath,
+              editor.document.uri.fsPath,
+            )
+          : editor.document.uri.fsPath;
+        const decisionLog = new DecisionLog(this.ide);
+        await decisionLog.record(
+          {
+            operationType: "applyDiff",
+            predictability: decisionResult.predictability,
+            decisionNote: decisionResult.decisionNote,
+            filesTouched: [relativePath],
+            diffStats: {
+              linesAdded: diffStats.linesAdded,
+              linesRemoved: diffStats.linesRemoved,
+            },
+            aiActionSummary: "Applied AI diff (instant apply)",
+          },
+          fileUri,
+        );
+      }
     } else {
       await this.handleNonInstantDiff(
         editor,

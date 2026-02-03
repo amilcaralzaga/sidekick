@@ -789,6 +789,7 @@ declare global {
   
   type ContextProviderName =
     | "diff"
+    | "decision-log"
     | "terminal"
     | "debugger"
     | "open"
@@ -813,6 +814,7 @@ declare global {
     | "highlights"
     | "file"
     | "issue"
+    | "decision-log"
     | "repo-map"
     | "url"
     | string;

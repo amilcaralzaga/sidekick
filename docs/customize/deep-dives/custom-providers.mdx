@@ -120,14 +120,18 @@ context:
       maxTopFiles: 50
       maxHotspots: 20
       maxTreeDepth: 4
+      maxFiles: 5000
+      maxTotalBytes: 20971520
+      maxFileKb: 512
       cacheTtlSeconds: 600
+      pythonPath: "python3"
       include:
         - "src/**"
       exclude:
         - "dist/**"
 ```
 
-The output is bounded (tree size and max counts) and cached by repo root + git HEAD when available.
+The output is bounded (tree size and max counts) and cached by repo root + git HEAD when available. Requires Python 3 on your PATH (or set `pythonPath`).
 
 This context provider is inpsired by [Aider's repository map](https://aider.chat/2023/10/22/repomap.html).
 

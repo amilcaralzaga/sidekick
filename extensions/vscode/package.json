@@ -147,6 +147,26 @@
           "type": "number",
           "default": 60,
           "description": "The period of time in minutes between automatic syncs."
+        },
+        "sidekick.authorshipMode.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require a short decision note before applying non-trivial AI edits."
+        },
+        "sidekick.authorshipMode.autoApproveMaxChangedLines": {
+          "type": "number",
+          "default": 15,
+          "description": "Max changed lines for auto-approval of predictable edits."
+        },
+        "sidekick.authorshipMode.logPath": {
+          "type": "string",
+          "default": ".sidekick/decision-log.jsonl",
+          "description": "Workspace-relative path to store authorship decision logs (JSONL)."
+        },
+        "sidekick.authorshipMode.requireDecisionForConfigFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Always require a decision note when editing build/config/manifest files."
         }
       }
     },
@@ -381,6 +401,11 @@
         "category": "Continue",
         "title": "Open in new window",
         "group": "Continue"
+      },
+      {
+        "command": "sidekick.copyAuthorshipCommitNote",
+        "category": "Sidekick",
+        "title": "Sidekick: Copy Authorship Commit Note"
       }
     ],
     "keybindings": [

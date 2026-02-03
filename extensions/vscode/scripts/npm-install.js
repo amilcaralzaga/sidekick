@@ -9,16 +9,31 @@ const { execCmdSync } = require("../../../scripts/util");
 
 const { continueDir } = require("./utils");
 
+function pnpmInstallWithFallback(label) {
+  // Packaging should work in both online and offline environments.
+  // Try an offline, lockfile-respecting install first; if it fails (e.g. cold store),
+  // fall back to a normal install.
+  try {
+    execCmdSync("CI=true pnpm install --frozen-lockfile --offline");
+    console.log(`[info] pnpm install (${label}) completed (offline)`);
+    return;
+  } catch (e) {
+    console.warn(
+      `[warn] pnpm install (${label}) offline failed; retrying online (this is expected on cold caches)`,
+    );
+  }
+  execCmdSync("CI=true pnpm install");
+  console.log(`[info] pnpm install (${label}) completed (online)`);
+}
+
 async function installNodeModulesInGui() {
   process.chdir(path.join(continueDir, "gui"));
-  execCmdSync("CI=true pnpm install");
-  console.log("[info] pnpm install in gui completed");
+  pnpmInstallWithFallback("gui");
 }
 
 async function installNodeModulesInVscode() {
   process.chdir(path.join(continueDir, "extensions", "vscode"));
-  execCmdSync("CI=true pnpm install");
-  console.log("[info] pnpm install in extensions/vscode completed");
+  pnpmInstallWithFallback("extensions/vscode");
 }
 
 process.on("message", (msg) => {

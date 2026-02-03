@@ -21,7 +21,10 @@ DEFAULT_MAX_TOP_FILES = 50
 DEFAULT_MAX_HOTSPOTS = 20
 DEFAULT_MAX_TREE_DEPTH = 4
 DEFAULT_MAX_FILE_KB = 512
+DEFAULT_MAX_FILE_BYTES = DEFAULT_MAX_FILE_KB * 1024
 DEFAULT_MAX_SCAN_LINES = 4000
+DEFAULT_MAX_FILES = 5000
+DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024
 
 DEFAULT_EXCLUDED_DIRS = {
     ".git",
@@ -143,7 +146,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-hotspots", type=int, default=DEFAULT_MAX_HOTSPOTS)
     parser.add_argument("--max-tree-depth", type=int, default=DEFAULT_MAX_TREE_DEPTH)
     parser.add_argument("--max-file-kb", type=int, default=DEFAULT_MAX_FILE_KB)
+    parser.add_argument(
+        "--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES
+    )
     parser.add_argument("--max-scan-lines", type=int, default=DEFAULT_MAX_SCAN_LINES)
+    parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
+    parser.add_argument("--max-total-bytes", type=int, default=DEFAULT_MAX_TOTAL_BYTES)
     parser.add_argument("--include", action="append", default=[])
     parser.add_argument("--exclude", action="append", default=[])
     return parser.parse_args()
@@ -350,21 +358,38 @@ def scan_file(
     rel_path: str,
     abs_path: str,
     max_file_kb: int,
+    max_file_bytes: int,
     max_scan_lines: int,
-) -> Tuple[Optional[int], List[Dict]]:
+    max_total_bytes_remaining: int,
+) -> Tuple[Optional[int], List[Dict], int, bool]:
     size_kb = os.path.getsize(abs_path) / 1024
     if size_kb > max_file_kb:
-        return None, []
+        return None, [], 0, False
     ext = os.path.splitext(rel_path)[1].lower()
     patterns = SYMBOL_PATTERNS.get(ext)
     symbols: List[Dict] = []
     line_count = 0
+    bytes_read = 0
+    truncated = False
 
     try:
         with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line_count += 1
                 if line_count > max_scan_lines:
+                    break
+                if max_total_bytes_remaining <= 0:
+                    truncated = True
+                    break
+                try:
+                    bytes_read += len(line.encode("utf-8", errors="ignore"))
+                except Exception:
+                    bytes_read += len(line)
+                if bytes_read > max_file_bytes:
+                    truncated = True
+                    break
+                if bytes_read > max_total_bytes_remaining:
+                    truncated = True
                     break
                 if not patterns:
                     continue
@@ -414,9 +439,9 @@ def scan_file(
                     )
                     break
     except Exception:
-        return None, []
+        return None, [], 0, False
 
-    return line_count, symbols
+    return line_count, symbols, bytes_read, truncated
 
 
 def main() -> int:
@@ -433,23 +458,33 @@ def main() -> int:
     include_globs = list(args.include or [])
     gitignore_patterns, gitignore_neg = load_gitignore(repo_root)
 
-    files: List[Tuple[str, str]] = list(
-        iter_files(
-            repo_root,
-            exclude_dirs,
-            exclude_globs,
-            include_globs,
-            gitignore_patterns,
-            gitignore_neg,
-        )
-    )
+    files: List[Tuple[str, str]] = []
+    files_truncated = False
+    for rel_path, abs_path in iter_files(
+        repo_root,
+        exclude_dirs,
+        exclude_globs,
+        include_globs,
+        gitignore_patterns,
+        gitignore_neg,
+    ):
+        if len(files) >= args.max_files:
+            files_truncated = True
+            break
+        files.append((rel_path, abs_path))
 
     file_infos: List[Dict] = []
     symbols: List[Dict] = []
     line_counts: Dict[str, int] = {}
     symbols_truncated = False
+    total_bytes = 0
+    file_bytes_truncated = False
+    total_bytes_truncated = False
 
     for rel_path, abs_path in files:
+        if total_bytes >= args.max_total_bytes:
+            total_bytes_truncated = True
+            break
         try:
             size = os.path.getsize(abs_path)
             mtime = os.path.getmtime(abs_path)
@@ -466,9 +501,20 @@ def main() -> int:
         if os.path.splitext(rel_path)[1].lower() in TEXT_EXTENSIONS or os.path.basename(
             rel_path
         ).lower() in IMPORTANT_FILENAMES:
-            line_count, file_symbols = scan_file(
-                rel_path, abs_path, args.max_file_kb, args.max_scan_lines
+            line_count, file_symbols, bytes_read, truncated = scan_file(
+                rel_path,
+                abs_path,
+                args.max_file_kb,
+                args.max_file_bytes,
+                args.max_scan_lines,
+                args.max_total_bytes - total_bytes,
             )
+            total_bytes += bytes_read
+            if truncated:
+                if total_bytes >= args.max_total_bytes:
+                    total_bytes_truncated = True
+                else:
+                    file_bytes_truncated = True
             if line_count is not None:
                 line_counts[rel_path] = line_count
             if not symbols_truncated and file_symbols:
@@ -549,6 +595,12 @@ def main() -> int:
         notes.append("tree truncated")
     if symbols_truncated:
         notes.append("symbols truncated")
+    if files_truncated:
+        notes.append("files truncated")
+    if file_bytes_truncated:
+        notes.append("file bytes truncated")
+    if total_bytes_truncated:
+        notes.append("total bytes truncated")
     if len(top_files) >= args.max_top_files:
         notes.append("top_files truncated")
     if len(hotspots) >= args.max_hotspots:

@@ -1,8 +1,17 @@
 import { Core } from "core/core";
 import { DataLogger } from "core/data/log";
 import { myersDiff } from "core/diff/myers";
+import { localPathOrUriToPath } from "core/util/pathToUri";
+import * as path from "path";
+import * as vscode from "vscode";
 
 import { ContinueGUIWebviewViewProvider } from "../ContinueGUIWebviewViewProvider";
+import { DecisionLog } from "../authorship/DecisionLog";
+import {
+  buildChangeSummary,
+  ensureDecisionForChange,
+  getAuthorshipConfig,
+} from "../authorship/authorship";
 import { editOutcomeTracker } from "../extension/EditOutcomeTracker";
 import { VsCodeIde } from "../VsCodeIde";
 
@@ -31,6 +40,42 @@ export async function processDiff(
   }
 
   await ide.openFile(newOrCurrentUri);
+
+  const authorshipConfig = getAuthorshipConfig();
+  let decisionResult = null;
+  let changeSummary = null;
+  let filesTouched: string[] = [];
+  if (action === "accept" && authorshipConfig.enabled) {
+    const blocks =
+      verticalDiffManager.fileUriToCodeLens.get(newOrCurrentUri) ?? [];
+    const linesAdded = blocks.reduce((sum, block) => sum + block.numGreen, 0);
+    const linesRemoved = blocks.reduce((sum, block) => sum + block.numRed, 0);
+    const isMultiFile = verticalDiffManager.fileUriToCodeLens.size > 1;
+    changeSummary = buildChangeSummary({
+      fileUri: newOrCurrentUri,
+      linesAdded,
+      linesRemoved,
+      isNewFile: false,
+      isMultiFile,
+    });
+
+    decisionResult = await ensureDecisionForChange(
+      changeSummary,
+      authorshipConfig,
+    );
+    if (!decisionResult) {
+      return;
+    }
+
+    const filePath = localPathOrUriToPath(newOrCurrentUri);
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.parse(newOrCurrentUri),
+    );
+    const relativePath = workspaceFolder?.uri.fsPath
+      ? path.relative(workspaceFolder.uri.fsPath, filePath)
+      : filePath;
+    filesTouched = [relativePath];
+  }
 
   // If streamId is not provided, try to get it from the VerticalDiffManager
   if (!streamId) {
@@ -95,5 +140,28 @@ export async function processDiff(
   } else {
     // Save the file even if no streamId
     await ide.saveFile(newOrCurrentUri);
+  }
+
+  if (
+    action === "accept" &&
+    authorshipConfig.enabled &&
+    decisionResult &&
+    changeSummary
+  ) {
+    const decisionLog = new DecisionLog(ide);
+    await decisionLog.record(
+      {
+        operationType: "applyDiff",
+        predictability: decisionResult.predictability,
+        decisionNote: decisionResult.decisionNote,
+        filesTouched,
+        diffStats: {
+          linesAdded: changeSummary.linesAdded,
+          linesRemoved: changeSummary.linesRemoved,
+        },
+        aiActionSummary: `Applied AI diff to ${filesTouched.join(", ") || "file"}`,
+      },
+      newOrCurrentUri,
+    );
   }
 }
