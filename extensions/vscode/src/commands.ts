@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 import { ContextMenuConfig, ILLM, ModelInstaller } from "core";
 import { CompletionProvider } from "core/autocomplete/CompletionProvider";
@@ -40,6 +41,13 @@ import { DecisionLog } from "./authorship/DecisionLog";
 import { formatCommitNote } from "./authorship/authorship";
 import { processDiff } from "./diff/processDiff";
 import { VerticalDiffManager } from "./diff/vertical/manager";
+import {
+  createPlan,
+  getWorkspaceRootPath,
+  listPlans,
+  readPlanInfo,
+  setActivePlanPath,
+} from "./plans/PlanStore";
 import EditDecorationManager from "./quickEdit/EditDecorationManager";
 import { QuickEdit, QuickEditShowParams } from "./quickEdit/QuickEditQuickPick";
 import {
@@ -57,7 +65,7 @@ let fullScreenPanel: vscode.WebviewPanel | undefined;
 function getFullScreenTab() {
   const tabs = vscode.window.tabGroups.all.flatMap((tabGroup) => tabGroup.tabs);
   return tabs.find((tab) =>
-    (tab.input as any)?.viewType?.endsWith("continue.continueGUIView"),
+    (tab.input as any)?.viewType?.endsWith("devsherpa.devsherpaGUIView"),
   );
 }
 
@@ -80,7 +88,7 @@ function focusGUI() {
     fullScreenPanel?.reveal();
   } else {
     // focus sidebar
-    vscode.commands.executeCommand("continue.continueGUIView.focus");
+    vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
     // vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
   }
 }
@@ -228,7 +236,7 @@ const getCommandsMap: (
 
       addCodeToContextFromRange(range, sidebar.webviewProtocol, prompt);
 
-      vscode.commands.executeCommand("continue.continueGUIView.focus");
+      vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
     },
     // Passthrough for telemetry purposes
     "continue.defaultQuickAction": async (args: QuickEditShowParams) => {
@@ -243,7 +251,7 @@ const getCommandsMap: (
 
       addCodeToContextFromRange(range, sidebar.webviewProtocol, prompt);
 
-      vscode.commands.executeCommand("continue.continueGUIView.focus");
+      vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
     },
     "continue.customQuickActionStreamInlineEdit": async (
       prompt: string,
@@ -404,7 +412,7 @@ const getCommandsMap: (
 
       const terminalContents = await ide.getTerminalContents();
 
-      vscode.commands.executeCommand("continue.continueGUIView.focus");
+      vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
 
       sidebar.webviewProtocol?.request("userInput", {
         input: `I got the following error, can you please help explain how to fix it?\n\n${terminalContents.trim()}`,
@@ -420,7 +428,7 @@ const getCommandsMap: (
     "continue.addModel": () => {
       captureCommandTelemetry("addModel");
 
-      vscode.commands.executeCommand("continue.continueGUIView.focus");
+      vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
       sidebar.webviewProtocol?.request("addModel", undefined);
     },
     "continue.newSession": () => {
@@ -496,6 +504,83 @@ const getCommandsMap: (
         "Authorship commit note copied to clipboard.",
       );
     },
+    "devsherpa.newPlan": async () => {
+      const repoRootPath = getWorkspaceRootPath();
+      if (!repoRootPath) {
+        void vscode.window.showWarningMessage(
+          "No workspace root found; cannot create plan.",
+        );
+        return;
+      }
+
+      const title = await vscode.window.showInputBox({
+        prompt: "Plan title",
+        placeHolder: "Short, descriptive title",
+        ignoreFocusOut: true,
+      });
+      if (!title) {
+        return;
+      }
+
+      try {
+        const relPath = createPlan(repoRootPath, title);
+        setActivePlanPath(repoRootPath, relPath);
+        const doc = await vscode.workspace.openTextDocument(
+          path.join(repoRootPath, relPath),
+        );
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } catch {
+        void vscode.window.showWarningMessage(
+          "Unable to create plan file in this workspace.",
+        );
+      }
+    },
+    "devsherpa.setActivePlan": async () => {
+      const repoRootPath = getWorkspaceRootPath();
+      if (!repoRootPath) {
+        void vscode.window.showWarningMessage(
+          "No workspace root found; cannot set active plan.",
+        );
+        return;
+      }
+
+      const plans = listPlans(repoRootPath);
+      if (!plans.length) {
+        void vscode.window.showInformationMessage(
+          "No plan files found in .sidekick/plans.",
+        );
+        return;
+      }
+
+      const items = plans.map((relPath) => {
+        const info = readPlanInfo(repoRootPath, relPath);
+        return {
+          label: info?.title ?? path.basename(relPath),
+          description: relPath,
+          relPath,
+        };
+      });
+
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: "Select active plan",
+        ignoreFocusOut: true,
+      });
+      if (!pick) {
+        return;
+      }
+
+      try {
+        setActivePlanPath(repoRootPath, pick.relPath);
+        const doc = await vscode.workspace.openTextDocument(
+          path.join(repoRootPath, pick.relPath),
+        );
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } catch {
+        void vscode.window.showWarningMessage(
+          "Unable to set active plan in this workspace.",
+        );
+      }
+    },
     "continue.openConfigPage": () => {
       vscode.commands.executeCommand("continue.navigateTo", "/config", false);
     },
@@ -507,7 +592,7 @@ const getCommandsMap: (
         throw new Error("No files were selected");
       }
 
-      vscode.commands.executeCommand("continue.continueGUIView.focus");
+      vscode.commands.executeCommand("devsherpa.devsherpaGUIView.focus");
 
       for (const uri of uris) {
         // If it's a folder, add the entire folder contents recursively by using walkDir (to ignore ignored files)
@@ -844,7 +929,7 @@ const getCommandsMap: (
 
       // Create the full screen panel
       let panel = vscode.window.createWebviewPanel(
-        "continue.continueGUIView",
+        "devsherpa.devsherpaGUIView",
         "Continue",
         vscode.ViewColumn.One,
         {

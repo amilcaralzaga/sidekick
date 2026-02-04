@@ -42,10 +42,12 @@ export async function processDiff(
   await ide.openFile(newOrCurrentUri);
 
   const authorshipConfig = getAuthorshipConfig();
+  const enforceAuthorship =
+    authorshipConfig.enabled || authorshipConfig.docsOnly;
   let decisionResult = null;
   let changeSummary = null;
   let filesTouched: string[] = [];
-  if (action === "accept" && authorshipConfig.enabled) {
+  if (action === "accept" && enforceAuthorship) {
     const blocks =
       verticalDiffManager.fileUriToCodeLens.get(newOrCurrentUri) ?? [];
     const linesAdded = blocks.reduce((sum, block) => sum + block.numGreen, 0);
@@ -59,22 +61,30 @@ export async function processDiff(
       isMultiFile,
     });
 
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.parse(newOrCurrentUri),
+    );
+    const fileUris = isMultiFile
+      ? Array.from(verticalDiffManager.fileUriToCodeLens.keys())
+      : [newOrCurrentUri];
+    filesTouched = fileUris.map((uri) => {
+      const filePath = localPathOrUriToPath(uri);
+      return workspaceFolder?.uri.fsPath
+        ? path.relative(workspaceFolder.uri.fsPath, filePath)
+        : filePath;
+    });
+
     decisionResult = await ensureDecisionForChange(
       changeSummary,
       authorshipConfig,
+      {
+        filesTouched,
+        repoRootPath: workspaceFolder?.uri.fsPath,
+      },
     );
     if (!decisionResult) {
       return;
     }
-
-    const filePath = localPathOrUriToPath(newOrCurrentUri);
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-      vscode.Uri.parse(newOrCurrentUri),
-    );
-    const relativePath = workspaceFolder?.uri.fsPath
-      ? path.relative(workspaceFolder.uri.fsPath, filePath)
-      : filePath;
-    filesTouched = [relativePath];
   }
 
   // If streamId is not provided, try to get it from the VerticalDiffManager
@@ -160,6 +170,8 @@ export async function processDiff(
           linesRemoved: changeSummary.linesRemoved,
         },
         aiActionSummary: `Applied AI diff to ${filesTouched.join(", ") || "file"}`,
+        planPath: decisionResult.planPath,
+        planTitle: decisionResult.planTitle,
       },
       newOrCurrentUri,
     );

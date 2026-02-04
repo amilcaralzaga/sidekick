@@ -2,6 +2,37 @@ import { machineIdSync } from "node-machine-id";
 import * as URI from "uri-js";
 import * as vscode from "vscode";
 
+const DEVSHERPA_EXTENSION_ID = "devsherpa.devsherpa-continue";
+const DEVSHERPA_EXTENSION_NAME = "devsherpa-continue";
+const DEVSHERPA_EXTENSION_PUBLISHER = "devsherpa";
+const LEGACY_EXTENSION_IDS = ["Continue.continue", "continue.continue"];
+const LEGACY_EXTENSION_NAME = "continue";
+const LEGACY_EXTENSION_PUBLISHER = "Continue";
+
+function resolveExtension(): vscode.Extension<any> | undefined {
+  for (const id of [DEVSHERPA_EXTENSION_ID, ...LEGACY_EXTENSION_IDS]) {
+    const ext = vscode.extensions.getExtension(id);
+    if (ext) {
+      return ext;
+    }
+  }
+
+  const byName = vscode.extensions.all.find(
+    (ext) =>
+      ext.packageJSON?.name === DEVSHERPA_EXTENSION_NAME &&
+      ext.packageJSON?.publisher === DEVSHERPA_EXTENSION_PUBLISHER,
+  );
+  if (byName) {
+    return byName;
+  }
+
+  return vscode.extensions.all.find(
+    (ext) =>
+      ext.packageJSON?.name === LEGACY_EXTENSION_NAME &&
+      ext.packageJSON?.publisher === LEGACY_EXTENSION_PUBLISHER,
+  );
+}
+
 export function translate(range: vscode.Range, lines: number): vscode.Range {
   return new vscode.Range(
     range.start.line + lines,
@@ -22,7 +53,17 @@ export function getNonce() {
 }
 
 export function getExtensionUri(): vscode.Uri {
-  return vscode.extensions.getExtension("Continue.continue")!.extensionUri;
+  const extension = resolveExtension();
+  if (!extension) {
+    // Fail-soft: return a safe path rather than throwing during view load
+    return vscode.Uri.file(process.cwd());
+  }
+  return extension.extensionUri;
+}
+
+export function getExtensionVersion(): string {
+  const extension = resolveExtension();
+  return extension?.packageJSON?.version ?? "0.1.0";
 }
 
 export function getViewColumnOfFile(

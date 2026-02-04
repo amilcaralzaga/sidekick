@@ -193,10 +193,12 @@ export class VerticalDiffManager {
     }
 
     const authorshipConfig = getAuthorshipConfig();
+    const enforceAuthorship =
+      authorshipConfig.enabled || authorshipConfig.docsOnly;
     let decisionResult = null;
     let changeSummary = null;
     let filesTouched: string[] = [];
-    if (accept && authorshipConfig.enabled) {
+    if (accept && enforceAuthorship) {
       changeSummary = buildChangeSummary({
         fileUri,
         linesAdded: block.numGreen,
@@ -204,22 +206,31 @@ export class VerticalDiffManager {
         isNewFile: false,
         isMultiFile: this.fileUriToCodeLens.size > 1,
       });
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+        vscode.Uri.parse(fileUri),
+      );
+      const fileUris =
+        this.fileUriToCodeLens.size > 1
+          ? Array.from(this.fileUriToCodeLens.keys())
+          : [fileUri];
+      filesTouched = fileUris.map((uri) => {
+        const filePath = localPathOrUriToPath(uri);
+        return workspaceFolder?.uri.fsPath
+          ? path.relative(workspaceFolder.uri.fsPath, filePath)
+          : filePath;
+      });
+
       decisionResult = await ensureDecisionForChange(
         changeSummary,
         authorshipConfig,
+        {
+          filesTouched,
+          repoRootPath: workspaceFolder?.uri.fsPath,
+        },
       );
       if (!decisionResult) {
         return;
       }
-
-      const filePath = localPathOrUriToPath(fileUri);
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-        vscode.Uri.parse(fileUri),
-      );
-      const relativePath = workspaceFolder?.uri.fsPath
-        ? path.relative(workspaceFolder.uri.fsPath, filePath)
-        : filePath;
-      filesTouched = [relativePath];
     }
 
     // Disable listening to file changes while continue makes changes
@@ -255,6 +266,8 @@ export class VerticalDiffManager {
             linesRemoved: changeSummary.linesRemoved,
           },
           aiActionSummary: `Applied AI diff block to ${filesTouched.join(", ") || "file"}`,
+          planPath: decisionResult.planPath,
+          planTitle: decisionResult.planTitle,
         },
         fileUri,
       );

@@ -28,6 +28,7 @@ import OSContextProvider from "./OSContextProvider";
 import PostgresContextProvider from "./PostgresContextProvider";
 import ProblemsContextProvider from "./ProblemsContextProvider";
 import RepoMapContextProvider from "./RepoMapContextProvider";
+import PlanContextProvider from "./PlanContextProvider";
 import RulesContextProvider from "./RulesContextProvider";
 import SearchContextProvider from "./SearchContextProvider";
 import TerminalContextProvider from "./TerminalContextProvider";
@@ -57,6 +58,7 @@ export const Providers: (typeof BaseContextProvider)[] = [
   FolderContextProvider,
   DocsContextProvider,
   DecisionLogContextProvider,
+  PlanContextProvider,
   GitLabMergeRequestContextProvider,
   JiraIssuesContextProvider,
   PostgresContextProvider,

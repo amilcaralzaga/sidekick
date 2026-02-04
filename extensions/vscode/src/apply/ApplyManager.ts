@@ -117,7 +117,7 @@ export class ApplyManager {
 
     let decisionResult = null;
     let changeSummary = null;
-    if (authorshipConfig.enabled) {
+    if (authorshipConfig.enabled || authorshipConfig.docsOnly) {
       const diffStats = computeDiffStats(originalFileContent ?? "", text);
       changeSummary = buildChangeSummary({
         fileUri,
@@ -126,10 +126,20 @@ export class ApplyManager {
         isNewFile: true,
         isMultiFile: false,
       });
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+        editor.document.uri,
+      );
+      const relativePath = workspaceFolder?.uri.fsPath
+        ? path.relative(workspaceFolder.uri.fsPath, editor.document.uri.fsPath)
+        : editor.document.uri.fsPath;
       decisionResult = await ensureDecisionForChange(
         changeSummary,
         authorshipConfig,
-        { forceDecision: true },
+        {
+          forceDecision: true,
+          filesTouched: [relativePath],
+          repoRootPath: workspaceFolder?.uri.fsPath,
+        },
       );
       if (!decisionResult) {
         await this.webviewProtocol.request("updateApplyState", {
@@ -174,6 +184,8 @@ export class ApplyManager {
             linesRemoved: changeSummary.linesRemoved,
           },
           aiActionSummary: "Created file from AI suggestion",
+          planPath: decisionResult.planPath,
+          planTitle: decisionResult.planTitle,
         },
         fileUri,
       );
@@ -217,7 +229,7 @@ export class ApplyManager {
     if (isInstantApply) {
       const authorshipConfig = getAuthorshipConfig();
       let decisionResult = null;
-      if (authorshipConfig.enabled) {
+      if (authorshipConfig.enabled || authorshipConfig.docsOnly) {
         const changeSummary = buildChangeSummary({
           fileUri,
           linesAdded: authorshipConfig.autoApproveMaxChangedLines + 1,
@@ -225,10 +237,23 @@ export class ApplyManager {
           isNewFile: false,
           isMultiFile: false,
         });
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+          editor.document.uri,
+        );
+        const relativePath = workspaceFolder?.uri.fsPath
+          ? path.relative(
+              workspaceFolder.uri.fsPath,
+              editor.document.uri.fsPath,
+            )
+          : editor.document.uri.fsPath;
         decisionResult = await ensureDecisionForChange(
           changeSummary,
           authorshipConfig,
-          { forceDecision: true },
+          {
+            forceDecision: true,
+            filesTouched: [relativePath],
+            repoRootPath: workspaceFolder?.uri.fsPath,
+          },
         );
         if (!decisionResult) {
           await this.webviewProtocol.request("updateApplyState", {
@@ -276,6 +301,8 @@ export class ApplyManager {
               linesRemoved: diffStats.linesRemoved,
             },
             aiActionSummary: "Applied AI diff (instant apply)",
+            planPath: decisionResult.planPath,
+            planTitle: decisionResult.planTitle,
           },
           fileUri,
         );

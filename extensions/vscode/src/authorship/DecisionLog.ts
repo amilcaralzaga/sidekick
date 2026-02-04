@@ -20,6 +20,8 @@ export interface DecisionLogEntry {
   predictability: Predictability;
   decisionNote: string;
   filesTouched: string[];
+  planPath?: string;
+  planTitle?: string;
   diffStats: {
     linesAdded: number;
     linesRemoved: number;
@@ -110,6 +112,8 @@ export class DecisionLog {
         predictability: entry.predictability,
         decisionNote: sanitizeField(entry.decisionNote),
         filesTouched: (entry.filesTouched ?? []).map(sanitizeField),
+        planPath: sanitizeField(entry.planPath),
+        planTitle: sanitizeField(entry.planTitle),
         diffStats: {
           linesAdded: Math.max(0, entry.diffStats?.linesAdded ?? 0),
           linesRemoved: Math.max(0, entry.diffStats?.linesRemoved ?? 0),

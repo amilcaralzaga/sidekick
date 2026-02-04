@@ -1,27 +1,25 @@
 {
-  "name": "continue",
+  "name": "devsherpa-continue",
   "icon": "media/icon.png",
-  "author": "Continue Dev, Inc",
+  "author": "DevSherpa",
   "version": "1.3.30",
   "repository": {
     "type": "git",
-    "url": "https://github.com/continuedev/continue"
+    "url": "https://github.com/amilcaralzaga/sidekick"
   },
   "extensionKind": [
     "ui",
     "workspace"
   ],
   "bugs": {
-    "url": "https://github.com/continuedev/continue/issues",
-    "email": "nate@continue.dev"
+    "url": "https://github.com/amilcaralzaga/sidekick/issues"
   },
-  "homepage": "https://continue.dev",
-  "qna": "https://github.com/continuedev/continue/issues/new/choose",
+  "homepage": "https://github.com/amilcaralzaga/sidekick",
   "license": "Apache-2.0",
-  "displayName": "Continue - open-source AI code agent",
+  "displayName": "DevSherpa (Continue Fork)",
   "pricing": "Free",
-  "description": "The leading open-source AI code agent",
-  "publisher": "Continue",
+  "description": "DevSherpa internal Continue fork",
+  "publisher": "devsherpa",
   "engines": {
     "vscode": "^1.70.0",
     "node": ">=20.19.0"
@@ -53,7 +51,7 @@
   "activationEvents": [
     "onUri",
     "onStartupFinished",
-    "onView:continueGUIView"
+    "onView:devsherpa.devsherpaGUIView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -84,7 +82,7 @@
       }
     ],
     "configuration": {
-      "title": "Continue",
+      "title": "DevSherpa",
       "properties": {
         "continue.telemetryEnabled": {
           "type": "boolean",
@@ -167,6 +165,11 @@
           "type": "boolean",
           "default": true,
           "description": "Always require a decision note when editing build/config/manifest files."
+        },
+        "sidekick.authorshipMode.docsOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow only documentation file edits (e.g. .md, .rst, .adoc) to be applied."
         }
       }
     },
@@ -406,6 +409,16 @@
         "command": "sidekick.copyAuthorshipCommitNote",
         "category": "Sidekick",
         "title": "Sidekick: Copy Authorship Commit Note"
+      },
+      {
+        "command": "devsherpa.newPlan",
+        "category": "DevSherpa",
+        "title": "DevSherpa: New Plan"
+      },
+      {
+        "command": "devsherpa.setActivePlan",
+        "category": "DevSherpa",
+        "title": "DevSherpa: Set Active Plan"
       }
     ],
     "keybindings": [
@@ -590,34 +603,34 @@
         {
           "command": "continue.newSession",
           "group": "navigation@1",
-          "when": "view == continue.continueGUIView"
+          "when": "view == devsherpa.devsherpaGUIView"
         },
         {
           "command": "continue.viewHistory",
           "group": "navigation@2",
-          "when": "view == continue.continueGUIView"
+          "when": "view == devsherpa.devsherpaGUIView"
         },
         {
           "command": "continue.openConfigPage",
           "group": "navigation@4",
-          "when": "view == continue.continueGUIView"
+          "when": "view == devsherpa.devsherpaGUIView"
         },
         {
           "command": "continue.clearConsole",
           "group": "navigation@1",
-          "when": "view == continue.continueConsoleView"
+          "when": "view == devsherpa.devsherpaConsoleView"
         }
       ],
       "editor/title": [
         {
           "command": "continue.newSession",
           "group": "navigation@1",
-          "when": "activeWebviewPanelId == continue.continueGUIView"
+          "when": "activeWebviewPanelId == devsherpa.devsherpaGUIView"
         },
         {
           "command": "continue.viewHistory",
           "group": "navigation@2",
-          "when": "activeWebviewPanelId == continue.continueGUIView"
+          "when": "activeWebviewPanelId == devsherpa.devsherpaGUIView"
         }
       ],
       "terminal/context": [
@@ -630,34 +643,34 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "continue",
-          "title": "Continue",
+          "id": "devsherpa",
+          "title": "DevSherpa",
           "icon": "media/sidebar-icon.png"
         }
       ],
       "panel": [
         {
-          "id": "continueConsole",
-          "title": "Continue Console",
+          "id": "devsherpaConsole",
+          "title": "DevSherpa Console",
           "icon": "$(window)"
         }
       ]
     },
     "views": {
-      "continue": [
+      "devsherpa": [
         {
           "type": "webview",
-          "id": "continue.continueGUIView",
-          "name": "Continue",
+          "id": "devsherpa.devsherpaGUIView",
+          "name": "DevSherpa",
           "icon": "media/sidebar-icon.png",
           "visibility": "visible"
         }
       ],
-      "continueConsole": [
+      "devsherpaConsole": [
         {
           "type": "webview",
-          "id": "continue.continueConsoleView",
-          "name": "Continue Console",
+          "id": "devsherpa.devsherpaConsoleView",
+          "name": "DevSherpa Console",
           "icon": "$(window)",
           "visibility": "visible",
           "when": "config.continue.enableConsole"

@@ -73,6 +73,18 @@ Settings (VS Code):
 - `sidekick.authorshipMode.autoApproveMaxChangedLines` (default `15`)
 - `sidekick.authorshipMode.logPath` (default `.sidekick/decision-log.jsonl`)
 - `sidekick.authorshipMode.requireDecisionForConfigFiles` (default `true`)
+- `sidekick.authorshipMode.docsOnly` (default `false`) — when enabled, only documentation files (.md/.rst/.adoc/.txt) may be applied
+
+## Plans (Plan-before-Execute)
+
+Plans are human-readable Markdown artifacts that capture intent before execution. They live at `.sidekick/plans/YYYY-MM-DD_<slug>.md`, and the active plan pointer is stored in `.sidekick/active-plan.json`. The Active Plan context provider injects a bounded, read-only view of the plan (title, intent, scope, approach, non-goals, risks).
+
+Commands (VS Code):
+
+- `DevSherpa: New Plan` (creates a plan from a template and sets it active)
+- `DevSherpa: Set Active Plan` (select an existing plan as active)
+
+DecisionLog entries include only plan path/title metadata—never the plan contents.
 
 ## Contributing
 

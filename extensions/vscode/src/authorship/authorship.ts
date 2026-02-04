@@ -3,6 +3,11 @@ import * as vscode from "vscode";
 
 import { myersDiff } from "core/diff/myers";
 import { localPathOrUriToPath } from "core/util/pathToUri";
+import {
+  getActivePlanPath,
+  getWorkspaceRootPath,
+  readPlanInfo,
+} from "../plans/PlanStore";
 
 export interface AuthorshipConfig {
   enabled: boolean;
@@ -10,6 +15,7 @@ export interface AuthorshipConfig {
   logPath: string;
   requireDecisionForConfigFiles: boolean;
   dirtyCacheTtlSeconds?: number;
+  docsOnly: boolean;
 }
 
 export type Predictability = "predictable" | "design";
@@ -21,18 +27,24 @@ export interface ChangeSummary {
   linesRemoved: number;
   changedLines: number;
   isConfigFile: boolean;
+  isRendererFile: boolean;
   isNewFile: boolean;
   isMultiFile: boolean;
+  isRename: boolean;
 }
 
 export interface DecisionCaptureResult {
   decisionNote: string;
   predictability: Predictability;
   autoApproved: boolean;
+  planPath?: string;
+  planTitle?: string;
+  outOfScopePaths?: string[];
 }
 
 const DEFAULT_AUTO_APPROVE_MAX = 15;
 const DEFAULT_LOG_PATH = ".sidekick/decision-log.jsonl";
+const NON_TRIVIAL_MAX_LINES = 20;
 
 const CONFIG_FILE_BASENAMES = new Set([
   "package.json",
@@ -57,7 +69,19 @@ const CONFIG_FILE_BASENAMES = new Set([
   "CMakeLists.txt",
 ]);
 
+const RENDERER_PATH_KEYWORDS = ["renderer", "rendering", "render-engine"];
+
+const DOC_FILE_EXTENSIONS = new Set([
+  ".md",
+  ".mdx",
+  ".markdown",
+  ".rst",
+  ".adoc",
+  ".txt",
+]);
+
 const AUTO_APPROVE_NOTE = "Predictable/boilerplate edit (auto-approved)";
+const OUT_OF_SCOPE_HINT = "Out-of-scope:";
 
 export const getAuthorshipConfig = (): AuthorshipConfig => {
   const config = vscode.workspace.getConfiguration("sidekick");
@@ -72,6 +96,7 @@ export const getAuthorshipConfig = (): AuthorshipConfig => {
       "authorshipMode.requireDecisionForConfigFiles",
       true,
     ),
+    docsOnly: config.get("authorshipMode.docsOnly", false),
   };
 };
 
@@ -84,6 +109,24 @@ export const isConfigFilePath = (filePath: string) => {
     return true;
   }
   return false;
+};
+
+export const isRendererPath = (filePath: string) => {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  const segments = normalized.split("/").filter(Boolean);
+  return segments.some((segment) =>
+    RENDERER_PATH_KEYWORDS.some((keyword) => segment.includes(keyword)),
+  );
+};
+
+export const isDocFilePath = (filePath: string) => {
+  const normalized = filePath.replace(/\\/g, "/");
+  const basename = path.basename(normalized).toLowerCase();
+  if (basename.startsWith("readme")) {
+    return true;
+  }
+  const ext = path.extname(basename).toLowerCase();
+  return DOC_FILE_EXTENSIONS.has(ext);
 };
 
 export const computeDiffStats = (oldContent: string, newContent: string) => {
@@ -106,15 +149,18 @@ export const buildChangeSummary = ({
   linesRemoved,
   isNewFile,
   isMultiFile,
+  isRename = false,
 }: {
   fileUri: string;
   linesAdded: number;
   linesRemoved: number;
   isNewFile: boolean;
   isMultiFile: boolean;
+  isRename?: boolean;
 }): ChangeSummary => {
   const filePath = localPathOrUriToPath(fileUri);
   const isConfigFile = isConfigFilePath(filePath);
+  const isRendererFile = isRendererPath(filePath);
   const changedLines = Math.max(0, linesAdded) + Math.max(0, linesRemoved);
   return {
     fileUri,
@@ -123,9 +169,21 @@ export const buildChangeSummary = ({
     linesRemoved,
     changedLines,
     isConfigFile,
+    isRendererFile,
     isNewFile,
     isMultiFile,
+    isRename,
   };
+};
+
+const isNonTrivialChange = (summary: ChangeSummary) => {
+  if (summary.isNewFile || summary.isRename || summary.isMultiFile) {
+    return true;
+  }
+  if (summary.isConfigFile || summary.isRendererFile) {
+    return true;
+  }
+  return summary.changedLines > NON_TRIVIAL_MAX_LINES;
 };
 
 const shouldAutoApprove = (
@@ -138,25 +196,116 @@ const shouldAutoApprove = (
   if (summary.isNewFile) {
     return false;
   }
+  if (summary.isRename) {
+    return false;
+  }
   if (summary.isMultiFile) {
     return false;
   }
-  if (config.requireDecisionForConfigFiles && summary.isConfigFile) {
+  if (summary.isConfigFile) {
+    return false;
+  }
+  if (summary.isRendererFile) {
     return false;
   }
   if (summary.changedLines === 0) {
     return true;
   }
-  return summary.changedLines <= config.autoApproveMaxChangedLines;
+  if (summary.changedLines > NON_TRIVIAL_MAX_LINES) {
+    return false;
+  }
+  const maxAutoApprove = Math.min(
+    config.autoApproveMaxChangedLines,
+    NON_TRIVIAL_MAX_LINES,
+  );
+  return summary.changedLines <= maxAutoApprove;
+};
+
+const normalizeRelPath = (value: string) => {
+  return value.replace(/\\/g, "/").replace(/^\.?\//, "");
+};
+
+const globToRegExp = (pattern: string) => {
+  const escaped = pattern
+    .replace(/\\/g, "/")
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "§§DOUBLESTAR§§")
+    .replace(/\*/g, "[^/]*")
+    .replace(/§§DOUBLESTAR§§/g, ".*");
+  return new RegExp(`^${escaped}$`);
+};
+
+const matchesScope = (filePath: string, scopeItems: string[]) => {
+  if (!scopeItems.length) {
+    return null;
+  }
+  const normalized = normalizeRelPath(filePath);
+  for (const raw of scopeItems) {
+    const scope = normalizeRelPath(raw.trim());
+    if (!scope) {
+      continue;
+    }
+    if (scope.includes("*")) {
+      const regex = globToRegExp(scope);
+      if (regex.test(normalized)) {
+        return true;
+      }
+    } else {
+      if (
+        normalized === scope ||
+        normalized.startsWith(`${scope}/`) ||
+        (scope.endsWith("/") && normalized.startsWith(scope))
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 };
 
 export const ensureDecisionForChange = async (
   summary: ChangeSummary,
   config: AuthorshipConfig,
-  options?: { forceDecision?: boolean },
+  options?: {
+    forceDecision?: boolean;
+    filesTouched?: string[];
+    repoRootPath?: string;
+  },
 ): Promise<DecisionCaptureResult | null> => {
+  const repoRootPath =
+    options?.repoRootPath ?? getWorkspaceRootPath(summary.fileUri) ?? "";
+  const planPath = repoRootPath ? getActivePlanPath(repoRootPath) : null;
+  const planInfo =
+    planPath && repoRootPath ? readPlanInfo(repoRootPath, planPath) : null;
+
+  const touchedPaths =
+    options?.filesTouched?.length && options.filesTouched.length > 0
+      ? options.filesTouched
+      : [summary.filePath];
+
+  if (config.docsOnly) {
+    const nonDocPaths = touchedPaths.filter(
+      (filePath) => !isDocFilePath(filePath),
+    );
+    if (nonDocPaths.length) {
+      const preview = nonDocPaths.slice(0, 10).join(", ");
+      await vscode.window.showWarningMessage(
+        `Docs-only mode is enabled. This change touches non-documentation files: ${preview}`,
+        { modal: true },
+        "Cancel",
+      );
+      return null;
+    }
+  }
+
   if (!config.enabled) {
-    return null;
+    return {
+      decisionNote: "",
+      predictability: "predictable",
+      autoApproved: true,
+      planPath: planInfo?.path,
+      planTitle: planInfo?.title,
+    };
   }
 
   const forceDecision = options?.forceDecision ?? false;
@@ -165,40 +314,109 @@ export const ensureDecisionForChange = async (
       decisionNote: AUTO_APPROVE_NOTE,
       predictability: "predictable",
       autoApproved: true,
+      planPath: planInfo?.path,
+      planTitle: planInfo?.title,
     };
   }
 
-  const predictabilityPick = await vscode.window.showQuickPick(
-    [
-      {
-        label: "Predictable",
-        description: "Small, mechanical, or boilerplate change",
-        value: "predictable" as Predictability,
-      },
-      {
-        label: "Design / Creative",
-        description: "Requires human judgment or architecture choice",
-        value: "design" as Predictability,
-      },
-    ],
-    {
-      placeHolder: "Classify this change",
-      ignoreFocusOut: true,
-    },
-  );
-
-  if (!predictabilityPick) {
-    return null;
+  const isNonTrivial = isNonTrivialChange(summary);
+  let outOfScopePaths: string[] = [];
+  if (isNonTrivial) {
+    if (!planInfo) {
+      const selection = await vscode.window.showWarningMessage(
+        "No active plan set for this non-trivial change.",
+        "Create Plan",
+        "Set Active Plan",
+      );
+      if (selection === "Create Plan") {
+        void vscode.commands.executeCommand("devsherpa.newPlan");
+      } else if (selection === "Set Active Plan") {
+        void vscode.commands.executeCommand("devsherpa.setActivePlan");
+      }
+    } else if (!planInfo.scopeItems.length) {
+      void vscode.window.showWarningMessage(
+        "Active plan has no scope entries; cannot validate scope.",
+      );
+    } else {
+      const normalized = touchedPaths.map(normalizeRelPath);
+      outOfScopePaths = normalized.filter(
+        (filePath) => matchesScope(filePath, planInfo.scopeItems) === false,
+      );
+      if (outOfScopePaths.length) {
+        const preview = outOfScopePaths.slice(0, 10).join(", ");
+        const proceed = await vscode.window.showWarningMessage(
+          `Out of scope for active plan: ${preview}`,
+          { modal: true },
+          "Proceed (Design)",
+          "Cancel",
+        );
+        if (proceed !== "Proceed (Design)") {
+          return null;
+        }
+      }
+    }
   }
+
+  const forcedDesign = outOfScopePaths.length > 0;
+  const forcedPredictability: Predictability | null = forcedDesign
+    ? "design"
+    : null;
+
+  let predictabilityValue: Predictability | null = forcedPredictability;
+  if (!predictabilityValue) {
+    const predictabilityPick = await vscode.window.showQuickPick(
+      [
+        {
+          label: "Predictable",
+          description: "Small, mechanical, or boilerplate change",
+          value: "predictable" as Predictability,
+        },
+        {
+          label: "Design / Creative",
+          description: "Requires human judgment or architecture choice",
+          value: "design" as Predictability,
+        },
+      ],
+      {
+        placeHolder: "Classify this change",
+        ignoreFocusOut: true,
+      },
+    );
+
+    if (!predictabilityPick) {
+      return null;
+    }
+    predictabilityValue = predictabilityPick.value;
+  }
+
+  const planTitle = planInfo?.title;
+  const planNotePrefix =
+    predictabilityValue === "design" && planTitle
+      ? `Per plan: ${planTitle}`
+      : "";
+  const outOfScopePrefix = outOfScopePaths.length
+    ? `${OUT_OF_SCOPE_HINT} ${outOfScopePaths.slice(0, 3).join(", ")}`
+    : "";
+
+  const defaultNote = [outOfScopePrefix, planNotePrefix]
+    .filter(Boolean)
+    .join(" ");
 
   const decisionNote = await vscode.window.showInputBox({
     prompt: "Decision note (why this approach?)",
     placeHolder: "e.g. Keep existing API shape; minimal change set.",
+    value: defaultNote,
     ignoreFocusOut: true,
     validateInput: (value) => {
       const trimmed = value.trim();
       if (trimmed.length < 8) {
         return "Please provide at least 8 characters.";
+      }
+      if (
+        outOfScopePaths.length > 0 &&
+        !trimmed.toLowerCase().includes("out-of-scope")
+      ) {
+        return "Please acknowledge out-of-scope intent in the note.";
       }
       return undefined;
     },
@@ -210,8 +428,11 @@ export const ensureDecisionForChange = async (
 
   return {
     decisionNote: decisionNote.trim(),
-    predictability: predictabilityPick.value,
+    predictability: predictabilityValue,
     autoApproved: false,
+    planPath: planInfo?.path,
+    planTitle: planInfo?.title,
+    outOfScopePaths: outOfScopePaths.length ? outOfScopePaths : undefined,
   };
 };
 

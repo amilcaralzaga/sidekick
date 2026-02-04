@@ -2,6 +2,8 @@ import * as os from "node:os";
 
 import * as vscode from "vscode";
 
+import { getExtensionVersion as getExtensionVersionFromVscode } from "./vscode";
+
 function charIsEscapedAtIndex(index: number, str: string): boolean {
   if (index === 0) {
     return false;
@@ -156,8 +158,7 @@ export function getMetaKeyName() {
 }
 
 export function getExtensionVersion(): string {
-  const extension = vscode.extensions.getExtension("continue.continue");
-  return extension?.packageJSON.version || "0.1.0";
+  return getExtensionVersionFromVscode();
 }
 
 export function getvsCodeUriScheme(): string {

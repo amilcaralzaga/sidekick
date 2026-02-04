@@ -816,6 +816,7 @@ declare global {
     | "issue"
     | "decision-log"
     | "repo-map"
+    | "active-plan"
     | "url"
     | string;
   
