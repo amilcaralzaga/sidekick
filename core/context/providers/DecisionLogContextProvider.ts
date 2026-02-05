@@ -9,7 +9,7 @@ import {
 import { localPathOrUriToPath } from "../../util/pathToUri.js";
 import { BaseContextProvider } from "../index.js";
 
-const DEFAULT_LOG_RELATIVE_PATH = path.join(".sidekick", "decision-log.jsonl");
+const DEFAULT_LOG_RELATIVE_PATH = ".DevSherpa_decision-log.jsonl";
 const DEFAULT_MAX_ENTRIES = 10;
 const MAX_ENTRIES_CAP = 25;
 const MAX_NOTE_CHARS = 180;
@@ -28,6 +28,8 @@ type DecisionLogEntry = {
   timestamp?: string;
   predictability?: "predictable" | "design" | string;
   decisionNote?: string;
+  classification?: { predictability?: "predictable" | "design" | string };
+  rationale?: { decisionNote?: string };
 };
 
 const toNumber = (value: unknown, fallback: number): number => {
@@ -137,6 +139,16 @@ const parseRecentEntries = (
   return results;
 };
 
+const getPredictability = (entry: DecisionLogEntry): string => {
+  return (
+    entry.classification?.predictability ?? entry.predictability ?? "unknown"
+  );
+};
+
+const getDecisionNote = (entry: DecisionLogEntry): string => {
+  return entry.rationale?.decisionNote ?? entry.decisionNote ?? "";
+};
+
 const formatEntryLine = (entry: DecisionLogEntry): string | null => {
   if (!entry.timestamp || typeof entry.timestamp !== "string") {
     return null;
@@ -146,9 +158,14 @@ const formatEntryLine = (entry: DecisionLogEntry): string | null => {
     return null;
   }
   const dateString = date.toISOString().slice(0, 10); // YYYY-MM-DD
+  const pred = getPredictability(entry);
   const predictability =
-    entry.predictability === "design" ? "(Design)" : "(Predictable)";
-  const note = typeof entry.decisionNote === "string" ? entry.decisionNote : "";
+    pred === "design"
+      ? "(Design)"
+      : pred === "predictable"
+        ? "(Predictable)"
+        : "(Unknown)";
+  const note = getDecisionNote(entry);
   const noteTrimmed = trimTo(note, MAX_NOTE_CHARS);
   if (!noteTrimmed) {
     return `[${dateString}] ${predictability} Note: (empty)`;
@@ -158,7 +175,7 @@ const formatEntryLine = (entry: DecisionLogEntry): string | null => {
 
 /**
  * Read-only provider that surfaces recent, human-authored decision notes from
- * `.sidekick/decision-log.jsonl` to keep AI behavior consistent with prior choices.
+ * `.DevSherpa_decision-log.jsonl` to keep AI behavior consistent with prior choices.
  *
  * Fail-soft: if the file is missing or malformed, returns no context.
  * Non-normative: entries are presented verbatim (trimmed only).

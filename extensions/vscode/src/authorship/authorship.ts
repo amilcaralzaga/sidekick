@@ -40,10 +40,21 @@ export interface DecisionCaptureResult {
   planPath?: string;
   planTitle?: string;
   outOfScopePaths?: string[];
+  approvals?: Array<{
+    by: string;
+    role?: string;
+    decision?: string;
+    timestamp?: string;
+    evidence?: string;
+  }>;
+  verification?: {
+    tests: string[];
+    benchmarks: string[];
+  };
 }
 
 const DEFAULT_AUTO_APPROVE_MAX = 15;
-const DEFAULT_LOG_PATH = ".sidekick/decision-log.jsonl";
+const DEFAULT_LOG_PATH = ".DevSherpa_decision-log.jsonl";
 const NON_TRIVIAL_MAX_LINES = 20;
 
 const CONFIG_FILE_BASENAMES = new Set([
@@ -84,19 +95,19 @@ const AUTO_APPROVE_NOTE = "Predictable/boilerplate edit (auto-approved)";
 const OUT_OF_SCOPE_HINT = "Out-of-scope:";
 
 export const getAuthorshipConfig = (): AuthorshipConfig => {
-  const config = vscode.workspace.getConfiguration("sidekick");
+  const config = vscode.workspace.getConfiguration();
   return {
-    enabled: config.get("authorshipMode.enabled", true),
+    enabled: config.get("DevSherpa_authorshipMode_enabled", true),
     autoApproveMaxChangedLines: config.get(
-      "authorshipMode.autoApproveMaxChangedLines",
+      "DevSherpa_authorshipMode_autoApproveMaxChangedLines",
       DEFAULT_AUTO_APPROVE_MAX,
     ),
-    logPath: config.get("authorshipMode.logPath", DEFAULT_LOG_PATH),
+    logPath: config.get("DevSherpa_authorshipMode_logPath", DEFAULT_LOG_PATH),
     requireDecisionForConfigFiles: config.get(
-      "authorshipMode.requireDecisionForConfigFiles",
+      "DevSherpa_authorshipMode_requireDecisionForConfigFiles",
       true,
     ),
-    docsOnly: config.get("authorshipMode.docsOnly", false),
+    docsOnly: config.get("DevSherpa_authorshipMode_docsOnly", false),
   };
 };
 
@@ -329,9 +340,9 @@ export const ensureDecisionForChange = async (
         "Set Active Plan",
       );
       if (selection === "Create Plan") {
-        void vscode.commands.executeCommand("devsherpa.newPlan");
+        void vscode.commands.executeCommand("DevSherpa_newPlan");
       } else if (selection === "Set Active Plan") {
-        void vscode.commands.executeCommand("devsherpa.setActivePlan");
+        void vscode.commands.executeCommand("DevSherpa_setActivePlan");
       }
     } else if (!planInfo.scopeItems.length) {
       void vscode.window.showWarningMessage(
@@ -426,6 +437,84 @@ export const ensureDecisionForChange = async (
     return null;
   }
 
+  let approvals: DecisionCaptureResult["approvals"];
+  let verification: DecisionCaptureResult["verification"];
+  if (predictabilityValue === "design") {
+    const approvalBy = await vscode.window.showInputBox({
+      prompt: "Approval (who approved this design change?)",
+      placeHolder: "e.g. Alice (Tech Lead)",
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        if (value.trim().length < 3) {
+          return "Please provide an approver name or role.";
+        }
+        return undefined;
+      },
+    });
+    if (!approvalBy) {
+      return null;
+    }
+
+    const approvalEvidence = await vscode.window.showInputBox({
+      prompt: "Approval evidence (link, ticket, or note)",
+      placeHolder: "e.g. JIRA-1234, PR comment link, or short note",
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        if (value.trim().length < 3) {
+          return "Please provide brief approval evidence.";
+        }
+        return undefined;
+      },
+    });
+    if (!approvalEvidence) {
+      return null;
+    }
+
+    approvals = [
+      {
+        by: approvalBy.trim(),
+        decision: "approved",
+        timestamp: new Date().toISOString(),
+        evidence: approvalEvidence.trim(),
+      },
+    ];
+
+    const testsInput = await vscode.window.showInputBox({
+      prompt: "Verification tests (comma-separated, at least one)",
+      placeHolder: "e.g. unit:PixelLoaderTests, integration:SliceLoadPerf",
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        const items = value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+        if (items.length === 0) {
+          return "Provide at least one test or benchmark.";
+        }
+        return undefined;
+      },
+    });
+    if (!testsInput) {
+      return null;
+    }
+    const tests = testsInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    const benchmarksInput = await vscode.window.showInputBox({
+      prompt: "Benchmarks (optional, comma-separated)",
+      placeHolder: "e.g. preload_latency_ms:-35%",
+      ignoreFocusOut: true,
+    });
+    const benchmarks = (benchmarksInput ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    verification = { tests, benchmarks };
+  }
+
   return {
     decisionNote: decisionNote.trim(),
     predictability: predictabilityValue,
@@ -433,6 +522,8 @@ export const ensureDecisionForChange = async (
     planPath: planInfo?.path,
     planTitle: planInfo?.title,
     outOfScopePaths: outOfScopePaths.length ? outOfScopePaths : undefined,
+    approvals,
+    verification,
   };
 };
 

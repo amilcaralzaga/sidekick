@@ -2,9 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-const SIDEKICK_DIR = ".sidekick";
-const PLANS_DIR = path.join(SIDEKICK_DIR, "plans");
-const ACTIVE_PLAN_FILE = path.join(SIDEKICK_DIR, "active-plan.json");
+const DEVSHERPA_PLANS_DIR = ".DevSherpa_plans";
+const ACTIVE_PLAN_FILE = ".DevSherpa_active-plan.json";
 
 const MAX_TITLE_LENGTH = 120;
 
@@ -80,7 +79,7 @@ export const ensureDirs = (repoRootPath: string) => {
   if (!root) {
     return;
   }
-  fs.mkdirSync(path.join(root, PLANS_DIR), { recursive: true });
+  fs.mkdirSync(path.join(root, DEVSHERPA_PLANS_DIR), { recursive: true });
 };
 
 export const listPlans = (repoRootPath: string): string[] => {
@@ -89,7 +88,7 @@ export const listPlans = (repoRootPath: string): string[] => {
     if (!root) {
       return [];
     }
-    const dir = path.join(root, PLANS_DIR);
+    const dir = path.join(root, DEVSHERPA_PLANS_DIR);
     if (!fs.existsSync(dir)) {
       return [];
     }
@@ -97,7 +96,7 @@ export const listPlans = (repoRootPath: string): string[] => {
       .readdirSync(dir)
       .filter((file) => file.endsWith(".md"))
       .sort()
-      .map((file) => path.join(PLANS_DIR, file));
+      .map((file) => path.join(DEVSHERPA_PLANS_DIR, file));
   } catch {
     return [];
   }
@@ -148,11 +147,11 @@ export const createPlan = (repoRootPath: string, title: string): string => {
   const slug = slugify(title);
   let filename = `${date}_${slug}.md`;
   let counter = 1;
-  while (fs.existsSync(path.join(root, PLANS_DIR, filename))) {
+  while (fs.existsSync(path.join(root, DEVSHERPA_PLANS_DIR, filename))) {
     counter += 1;
     filename = `${date}_${slug}-${counter}.md`;
   }
-  const relPath = path.join(PLANS_DIR, filename);
+  const relPath = path.join(DEVSHERPA_PLANS_DIR, filename);
   const fullPath = path.join(root, relPath);
   const sanitizedTitle = sanitizeTitle(title);
   const template = `# Plan: ${sanitizedTitle}

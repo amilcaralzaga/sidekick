@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Decision Log Entry v2",
+  "type": "object",
+  "required": [
+    "id",
+    "timestamp",
+    "workspaceRoot",
+    "repoRoot",
+    "git",
+    "operation",
+    "change",
+    "classification",
+    "rationale"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "timestamp": { "type": "string" },
+    "workspaceRoot": { "type": "string" },
+    "repoRoot": { "type": "string" },
+    "git": {
+      "type": "object",
+      "properties": {
+        "headBefore": { "type": ["string", "null"] },
+        "headAfter": { "type": ["string", "null"] },
+        "branch": { "type": ["string", "null"] },
+        "dirty": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "operationType": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "change": {
+      "type": "object",
+      "properties": {
+        "filesTouched": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "diffStats": {
+          "type": "object",
+          "properties": {
+            "linesAdded": { "type": "integer", "minimum": 0 },
+            "linesRemoved": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "classification": {
+      "type": "object",
+      "properties": {
+        "predictability": { "type": "string" },
+        "impact": { "type": "string" },
+        "riskDomains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "safetyCritical": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "rationale": {
+      "type": "object",
+      "properties": {
+        "decisionNote": { "type": "string" },
+        "aiActionSummary": { "type": "string" },
+        "planTitle": { "type": "string" },
+        "planPath": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "tests": {
+          "type": "array",
+          "items": { "type": ["string", "object"] }
+        },
+        "benchmarks": {
+          "type": "array",
+          "items": { "type": ["string", "object"] }
+        }
+      },
+      "additionalProperties": true
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "by": { "type": "string" },
+          "role": { "type": "string" },
+          "decision": { "type": "string" },
+          "timestamp": { "type": "string" },
+          "evidence": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "traceability": {
+      "type": "object",
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tickets": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

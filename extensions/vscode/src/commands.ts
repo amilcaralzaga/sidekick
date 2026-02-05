@@ -48,6 +48,7 @@ import {
   readPlanInfo,
   setActivePlanPath,
 } from "./plans/PlanStore";
+import { runPlanInterview } from "./plans/PlanInterview";
 import EditDecorationManager from "./quickEdit/EditDecorationManager";
 import { QuickEdit, QuickEditShowParams } from "./quickEdit/QuickEditQuickPick";
 import {
@@ -489,7 +490,7 @@ const getCommandsMap: (
     "continue.applyCodeFromChat": () => {
       void sidebar.webviewProtocol.request("applyCodeFromChat", undefined);
     },
-    "sidekick.copyAuthorshipCommitNote": async () => {
+    DevSherpa_copyAuthorshipCommitNote: async () => {
       const decisionLog = new DecisionLog(ide);
       const [entry] = await decisionLog.readRecent(1);
       if (!entry) {
@@ -504,7 +505,7 @@ const getCommandsMap: (
         "Authorship commit note copied to clipboard.",
       );
     },
-    "devsherpa.newPlan": async () => {
+    DevSherpa_newPlan: async () => {
       const repoRootPath = getWorkspaceRootPath();
       if (!repoRootPath) {
         void vscode.window.showWarningMessage(
@@ -513,17 +514,17 @@ const getCommandsMap: (
         return;
       }
 
-      const title = await vscode.window.showInputBox({
-        prompt: "Plan title",
-        placeHolder: "Short, descriptive title",
-        ignoreFocusOut: true,
-      });
-      if (!title) {
-        return;
-      }
-
       try {
-        const relPath = createPlan(repoRootPath, title);
+        const interview = await runPlanInterview(core);
+        if (!interview) {
+          return;
+        }
+        const relPath = createPlan(repoRootPath, interview.title);
+        fs.writeFileSync(
+          path.join(repoRootPath, relPath),
+          interview.content,
+          "utf-8",
+        );
         setActivePlanPath(repoRootPath, relPath);
         const doc = await vscode.workspace.openTextDocument(
           path.join(repoRootPath, relPath),
@@ -535,7 +536,7 @@ const getCommandsMap: (
         );
       }
     },
-    "devsherpa.setActivePlan": async () => {
+    DevSherpa_setActivePlan: async () => {
       const repoRootPath = getWorkspaceRootPath();
       if (!repoRootPath) {
         void vscode.window.showWarningMessage(
@@ -547,7 +548,7 @@ const getCommandsMap: (
       const plans = listPlans(repoRootPath);
       if (!plans.length) {
         void vscode.window.showInformationMessage(
-          "No plan files found in .sidekick/plans.",
+          "No plan files found in .DevSherpa_plans.",
         );
         return;
       }

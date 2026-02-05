@@ -268,6 +268,8 @@ export class VerticalDiffManager {
           aiActionSummary: `Applied AI diff block to ${filesTouched.join(", ") || "file"}`,
           planPath: decisionResult.planPath,
           planTitle: decisionResult.planTitle,
+          approvals: decisionResult.approvals,
+          verification: decisionResult.verification,
         },
         fileUri,
       );

@@ -65,19 +65,28 @@ Requires Python 3 on your PATH (or set `pythonPath` in the provider params). Bud
 
 ## Authorship Mode
 
-Authorship Mode enforces “Decision → Execution → Attribution” for non-trivial AI edits. You’ll be prompted for a short decision note and classification before applying larger changes, while small predictable edits can be auto-approved. Entries are logged to `.sidekick/decision-log.jsonl` as metadata only (no code or diffs).
+Authorship Mode enforces “Decision → Execution → Attribution” for non-trivial AI edits. You’ll be prompted for a short decision note and classification before applying larger changes, while small predictable edits can be auto-approved. Entries are logged to `.DevSherpa_decision-log.jsonl` as metadata only (no code or diffs).
+
+For design-classified changes, you’ll also be prompted for a lightweight approval + verification (tests/benchmarks). These are required to satisfy the CI gate.
 
 Settings (VS Code):
 
-- `sidekick.authorshipMode.enabled` (default `true`)
-- `sidekick.authorshipMode.autoApproveMaxChangedLines` (default `15`)
-- `sidekick.authorshipMode.logPath` (default `.sidekick/decision-log.jsonl`)
-- `sidekick.authorshipMode.requireDecisionForConfigFiles` (default `true`)
-- `sidekick.authorshipMode.docsOnly` (default `false`) — when enabled, only documentation files (.md/.rst/.adoc/.txt) may be applied
+- `DevSherpa_authorshipMode_enabled` (default `true`)
+- `DevSherpa_authorshipMode_autoApproveMaxChangedLines` (default `15`)
+- `DevSherpa_authorshipMode_logPath` (default `.DevSherpa_decision-log.jsonl`)
+- `DevSherpa_authorshipMode_requireDecisionForConfigFiles` (default `true`)
+- `DevSherpa_authorshipMode_docsOnly` (default `false`) — when enabled, only documentation files (.md/.rst/.adoc/.txt) may be applied
+
+Decision log tools (repo root):
+
+- Render report: `python tools/decision-log/decision-log-render.py .DevSherpa_decision-log.jsonl --out decision-log-report --utc-offset +01:00`
+- Migrate v1 → v2: `python tools/decision-log/decision-log-migrate-v1-to-v2.py .DevSherpa_decision-log.jsonl --out decision-log.v2.jsonl`
+- CI gate (v2): `python tools/decision-log/decision-log-ci-check.py decision-log.v2.jsonl`
+- Schema: `tools/decision-log/decision-log-schema-v2.json`
 
 ## Plans (Plan-before-Execute)
 
-Plans are human-readable Markdown artifacts that capture intent before execution. They live at `.sidekick/plans/YYYY-MM-DD_<slug>.md`, and the active plan pointer is stored in `.sidekick/active-plan.json`. The Active Plan context provider injects a bounded, read-only view of the plan (title, intent, scope, approach, non-goals, risks).
+Plans are human-readable Markdown artifacts that capture intent before execution. They live at `.DevSherpa_plans/YYYY-MM-DD_<slug>.md`, and the active plan pointer is stored in `.DevSherpa_active-plan.json`. The Active Plan context provider injects a bounded, read-only view of the plan (title, intent, scope, approach, non-goals, risks).
 
 Commands (VS Code):
 

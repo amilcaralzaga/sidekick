@@ -186,6 +186,8 @@ export class ApplyManager {
           aiActionSummary: "Created file from AI suggestion",
           planPath: decisionResult.planPath,
           planTitle: decisionResult.planTitle,
+          approvals: decisionResult.approvals,
+          verification: decisionResult.verification,
         },
         fileUri,
       );
@@ -303,6 +305,8 @@ export class ApplyManager {
             aiActionSummary: "Applied AI diff (instant apply)",
             planPath: decisionResult.planPath,
             planTitle: decisionResult.planTitle,
+            approvals: decisionResult.approvals,
+            verification: decisionResult.verification,
           },
           fileUri,
         );

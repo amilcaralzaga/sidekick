@@ -172,6 +172,8 @@ export async function processDiff(
         aiActionSummary: `Applied AI diff to ${filesTouched.join(", ") || "file"}`,
         planPath: decisionResult.planPath,
         planTitle: decisionResult.planTitle,
+        approvals: decisionResult.approvals,
+        verification: decisionResult.verification,
       },
       newOrCurrentUri,
     );
