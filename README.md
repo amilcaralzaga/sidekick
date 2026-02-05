@@ -28,6 +28,8 @@
 
 </div>
 
+> **DevSherpa fork note:** This repo includes a DevSherpa-branded Continue fork with additional governance + deterministic context (RepoMap, Plans, Authorship Mode). See `DEVSHERPA_DELTA.md` for intent and delta.
+
 Get started in [Mission Control](https://continue.dev/hub?type=agents), [CLI (Headless Mode)](https://docs.continue.dev/cli/quick-start#headless-mode), or [CLI (TUI mode)](https://docs.continue.dev/cli/quick-start#tui-mode)
 
 ### Quick Install
