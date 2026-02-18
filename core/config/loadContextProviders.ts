@@ -5,10 +5,13 @@ import {
 import { IContextProvider, IdeType } from "..";
 import { contextProviderClassFromName } from "../context/providers";
 import CurrentFileContextProvider from "../context/providers/CurrentFileContextProvider";
+import DecisionLogContextProvider from "../context/providers/DecisionLogContextProvider";
 import DiffContextProvider from "../context/providers/DiffContextProvider";
 import DocsContextProvider from "../context/providers/DocsContextProvider";
 import FileContextProvider from "../context/providers/FileContextProvider";
+import PlanContextProvider from "../context/providers/PlanContextProvider";
 import ProblemsContextProvider from "../context/providers/ProblemsContextProvider";
+import RepoMapContextProvider from "../context/providers/RepoMapContextProvider";
 import RulesContextProvider from "../context/providers/RulesContextProvider";
 import TerminalContextProvider from "../context/providers/TerminalContextProvider";
 
@@ -37,6 +40,10 @@ export function loadConfigContextProviders(
     new TerminalContextProvider({}),
     new ProblemsContextProvider({}),
     new RulesContextProvider({}),
+    // DevSherpa default context loop: global repo context + active plan + recent decisions
+    new RepoMapContextProvider({}),
+    new PlanContextProvider({}),
+    new DecisionLogContextProvider({}),
   ];
 
   // Add from config

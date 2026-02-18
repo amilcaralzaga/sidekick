@@ -9,7 +9,7 @@ import {
 import { localPathOrUriToPath } from "../../util/pathToUri.js";
 import { BaseContextProvider } from "../index.js";
 
-const ACTIVE_PLAN_POINTER = ".DevSherpa_active-plan.json";
+const ACTIVE_PLAN_POINTER = ".devsherpa/active-plan.json";
 const MAX_SECTION_CHARS = 600;
 const MAX_TOTAL_CHARS = 3000;
 const MAX_LINES = 200;

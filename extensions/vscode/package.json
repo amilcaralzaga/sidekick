@@ -158,7 +158,7 @@
         },
         "DevSherpa_authorshipMode_logPath": {
           "type": "string",
-          "default": ".DevSherpa_decision-log.jsonl",
+          "default": ".devsherpa/decision-log.jsonl",
           "description": "Workspace-relative path to store authorship decision logs (JSONL)."
         },
         "DevSherpa_authorshipMode_requireDecisionForConfigFiles": {
@@ -414,6 +414,11 @@
         "command": "DevSherpa_newPlan",
         "category": "DevSherpa",
         "title": "DevSherpa: New Plan"
+      },
+      {
+        "command": "DevSherpa_newSkillInterview",
+        "category": "DevSherpa",
+        "title": "DevSherpa: New Skill Interview"
       },
       {
         "command": "DevSherpa_setActivePlan",

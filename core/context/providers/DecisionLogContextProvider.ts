@@ -9,7 +9,7 @@ import {
 import { localPathOrUriToPath } from "../../util/pathToUri.js";
 import { BaseContextProvider } from "../index.js";
 
-const DEFAULT_LOG_RELATIVE_PATH = ".DevSherpa_decision-log.jsonl";
+const DEFAULT_LOG_RELATIVE_PATH = ".devsherpa/decision-log.jsonl";
 const DEFAULT_MAX_ENTRIES = 10;
 const MAX_ENTRIES_CAP = 25;
 const MAX_NOTE_CHARS = 180;
@@ -175,7 +175,7 @@ const formatEntryLine = (entry: DecisionLogEntry): string | null => {
 
 /**
  * Read-only provider that surfaces recent, human-authored decision notes from
- * `.DevSherpa_decision-log.jsonl` to keep AI behavior consistent with prior choices.
+ * `.devsherpa/decision-log.jsonl` to keep AI behavior consistent with prior choices.
  *
  * Fail-soft: if the file is missing or malformed, returns no context.
  * Non-normative: entries are presented verbatim (trimmed only).

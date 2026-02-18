@@ -43,12 +43,18 @@ import { processDiff } from "./diff/processDiff";
 import { VerticalDiffManager } from "./diff/vertical/manager";
 import {
   createPlan,
+  createSkillIntakeArtifact,
+  DEVSHERPA_PLANS_DIR,
   getWorkspaceRootPath,
   listPlans,
   readPlanInfo,
   setActivePlanPath,
 } from "./plans/PlanStore";
 import { runPlanInterview } from "./plans/PlanInterview";
+import {
+  collectRepoInterviewContext,
+  runSkillPlanInterview,
+} from "./plans/SkillInterview";
 import EditDecorationManager from "./quickEdit/EditDecorationManager";
 import { QuickEdit, QuickEditShowParams } from "./quickEdit/QuickEditQuickPick";
 import {
@@ -127,6 +133,21 @@ function waitForSidebarReady(
     checkReadyState();
   });
 }
+
+const createPlanAndActivate = async (
+  repoRootPath: string,
+  title: string,
+  content: string,
+) => {
+  const relPath = createPlan(repoRootPath, title);
+  fs.writeFileSync(path.join(repoRootPath, relPath), content, "utf-8");
+  setActivePlanPath(repoRootPath, relPath);
+  const doc = await vscode.workspace.openTextDocument(
+    path.join(repoRootPath, relPath),
+  );
+  await vscode.window.showTextDocument(doc, { preview: false });
+  return relPath;
+};
 
 // Copy everything over from extension.ts
 const getCommandsMap: (
@@ -515,24 +536,87 @@ const getCommandsMap: (
       }
 
       try {
+        const interviewContext = await collectRepoInterviewContext(
+          repoRootPath,
+          extensionContext.extensionPath,
+        );
+        if (interviewContext.recommendation === "skill") {
+          const selection = await vscode.window.showInformationMessage(
+            "This repository appears skill/workflow oriented. Use skill interview for structured planning?",
+            "Skill Interview",
+            "Generic Plan",
+          );
+          if (selection === "Skill Interview") {
+            const skillInterview = await runSkillPlanInterview(
+              core,
+              interviewContext,
+            );
+            if (!skillInterview) {
+              return;
+            }
+            await createPlanAndActivate(
+              repoRootPath,
+              skillInterview.title,
+              skillInterview.content,
+            );
+            createSkillIntakeArtifact(
+              repoRootPath,
+              skillInterview.title,
+              skillInterview.record,
+            );
+            return;
+          }
+          if (selection !== "Generic Plan") {
+            return;
+          }
+        }
+
         const interview = await runPlanInterview(core);
         if (!interview) {
           return;
         }
-        const relPath = createPlan(repoRootPath, interview.title);
-        fs.writeFileSync(
-          path.join(repoRootPath, relPath),
+        await createPlanAndActivate(
+          repoRootPath,
+          interview.title,
           interview.content,
-          "utf-8",
         );
-        setActivePlanPath(repoRootPath, relPath);
-        const doc = await vscode.workspace.openTextDocument(
-          path.join(repoRootPath, relPath),
-        );
-        await vscode.window.showTextDocument(doc, { preview: false });
       } catch {
         void vscode.window.showWarningMessage(
           "Unable to create plan file in this workspace.",
+        );
+      }
+    },
+    DevSherpa_newSkillInterview: async () => {
+      const repoRootPath = getWorkspaceRootPath();
+      if (!repoRootPath) {
+        void vscode.window.showWarningMessage(
+          "No workspace root found; cannot create skill interview plan.",
+        );
+        return;
+      }
+
+      try {
+        const interviewContext = await collectRepoInterviewContext(
+          repoRootPath,
+          extensionContext.extensionPath,
+        );
+        const interview = await runSkillPlanInterview(core, interviewContext);
+        if (!interview) {
+          return;
+        }
+        await createPlanAndActivate(
+          repoRootPath,
+          interview.title,
+          interview.content,
+        );
+        createSkillIntakeArtifact(
+          repoRootPath,
+          interview.title,
+          interview.record,
+        );
+      } catch {
+        void vscode.window.showWarningMessage(
+          "Unable to create skill interview artifacts in this workspace.",
         );
       }
     },
@@ -548,7 +632,7 @@ const getCommandsMap: (
       const plans = listPlans(repoRootPath);
       if (!plans.length) {
         void vscode.window.showInformationMessage(
-          "No plan files found in .DevSherpa_plans.",
+          `No plan files found in ${DEVSHERPA_PLANS_DIR}.`,
         );
         return;
       }

@@ -54,7 +54,7 @@ export interface DecisionCaptureResult {
 }
 
 const DEFAULT_AUTO_APPROVE_MAX = 15;
-const DEFAULT_LOG_PATH = ".DevSherpa_decision-log.jsonl";
+const DEFAULT_LOG_PATH = ".devsherpa/decision-log.jsonl";
 const NON_TRIVIAL_MAX_LINES = 20;
 
 const CONFIG_FILE_BASENAMES = new Set([

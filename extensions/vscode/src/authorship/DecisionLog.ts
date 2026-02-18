@@ -339,7 +339,7 @@ export class DecisionLog {
     repoRootPath: string,
     logPath?: string,
   ): string | null {
-    const defaultPath = ".DevSherpa_decision-log.jsonl";
+    const defaultPath = ".devsherpa/decision-log.jsonl";
     const desired = logPath?.trim() || defaultPath;
     if (!repoRootPath) {
       return null;

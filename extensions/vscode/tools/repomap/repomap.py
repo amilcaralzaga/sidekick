@@ -25,6 +25,7 @@ DEFAULT_MAX_FILE_BYTES = DEFAULT_MAX_FILE_KB * 1024
 DEFAULT_MAX_SCAN_LINES = 4000
 DEFAULT_MAX_FILES = 5000
 DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024
+MAX_SYMBOLS_PER_FILE = 25
 
 DEFAULT_EXCLUDED_DIRS = {
     ".git",
@@ -48,6 +49,8 @@ DEFAULT_EXCLUDED_DIRS = {
     ".tox",
     "target",
     "coverage",
+    ".build",
+    ".swiftpm",
 }
 
 IMPORTANT_FILENAMES = {
@@ -106,6 +109,26 @@ TEXT_EXTENSIONS = {
     ".kt",
 }
 
+# Prefer scanning files that are likely to yield useful symbols/structure first.
+# Lower values are scanned earlier within each top-level group.
+EXT_SCAN_PRIORITY = {
+    ".swift": 0,
+    ".ts": 1,
+    ".tsx": 1,
+    ".js": 2,
+    ".jsx": 2,
+    ".py": 3,
+    ".rs": 4,
+    ".go": 5,
+    ".java": 6,
+    ".kt": 6,
+    ".md": 7,
+    ".yml": 8,
+    ".yaml": 8,
+    ".toml": 9,
+    ".json": 10,
+}
+
 SYMBOL_PATTERNS = {
     ".ts": [
         (re.compile(r"^\s*(?:export\s+)?class\s+(\w+)"), "class"),
@@ -125,7 +148,12 @@ SYMBOL_PATTERNS = {
     ".swift": [
         (
             re.compile(
-                r"^\s*(?:public|private|internal|open|fileprivate|final|static|class|mutating)?\s*(class|struct|protocol|enum|func|typealias|var|let)\s+(\w+)"
+                # Swift declarations commonly have multiple modifiers and/or attributes (e.g. "@MainActor public final class ...").
+                # We keep this regex intentionally lightweight (not a full parser), but robust enough to capture
+                # primary symbol declarations for RepoMap.
+                r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"
+                r"(?:(?:public|private|internal|open|fileprivate|final|static|class|mutating|nonisolated|lazy|override|required|convenience)\s+)*"
+                r"(class|struct|protocol|enum|typealias|actor)\s+([A-Za-z_]\w*)"
             ),
             None,
         ),
@@ -421,6 +449,8 @@ def scan_file(
                         "let",
                     }:
                         # Map unknowns to typealias or func
+                        if kind in {"actor"}:
+                            kind = "class"
                         if kind in {"interface"}:
                             kind = "typealias"
                         elif kind in {"function"}:
@@ -437,11 +467,82 @@ def scan_file(
                             "line": line_count,
                         }
                     )
+                    if len(symbols) >= MAX_SYMBOLS_PER_FILE:
+                        # Keep scanning for line count/budget, but stop collecting more symbols from this file.
+                        patterns = None
                     break
     except Exception:
         return None, [], 0, False
 
     return line_count, symbols, bytes_read, truncated
+
+
+def reorder_files_for_scan(files: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """Deterministic reordering to avoid a single top-level directory dominating symbol budget.
+
+    Strategy:
+    - Group by first path segment (top-level).
+    - Within each group, sort by extension priority then path.
+    - Interleave groups round-robin.
+    """
+
+    def group_key(rel_path: str) -> str:
+        return rel_path.split("/", 1)[0] if "/" in rel_path else rel_path
+
+    def ext_priority(rel_path: str) -> Tuple[int, str]:
+        ext = os.path.splitext(rel_path)[1].lower()
+        return EXT_SCAN_PRIORITY.get(ext, 100), rel_path
+
+    def name_priority(rel_path: str) -> int:
+        base = os.path.basename(rel_path).lower()
+        tokens = (
+            "orchestrator",
+            "sherpa",
+            "skillkit",
+            "workflowpack",
+            "workflow",
+            "skill",
+            "registry",
+            "executor",
+            "planner",
+            "provider",
+            "session",
+            "manager",
+        )
+        for i, token in enumerate(tokens):
+            if token in base:
+                return i
+        return len(tokens) + 1
+
+    grouped: Dict[str, List[Tuple[str, str]]] = {}
+    for rel_path, abs_path in files:
+        grouped.setdefault(group_key(rel_path), []).append((rel_path, abs_path))
+
+    keys = sorted(grouped.keys())
+    for k in keys:
+        grouped[k].sort(
+            key=lambda item: (
+                ext_priority(item[0])[0],
+                name_priority(item[0]),
+                item[0],
+            )
+        )
+
+    indices = {k: 0 for k in keys}
+    ordered: List[Tuple[str, str]] = []
+    while True:
+        progressed = False
+        for k in keys:
+            idx = indices[k]
+            if idx >= len(grouped[k]):
+                continue
+            ordered.append(grouped[k][idx])
+            indices[k] = idx + 1
+            progressed = True
+        if not progressed:
+            break
+
+    return ordered
 
 
 def main() -> int:
@@ -473,6 +574,8 @@ def main() -> int:
             break
         files.append((rel_path, abs_path))
 
+    files_for_scan = reorder_files_for_scan(files)
+
     file_infos: List[Dict] = []
     symbols: List[Dict] = []
     line_counts: Dict[str, int] = {}
@@ -481,10 +584,7 @@ def main() -> int:
     file_bytes_truncated = False
     total_bytes_truncated = False
 
-    for rel_path, abs_path in files:
-        if total_bytes >= args.max_total_bytes:
-            total_bytes_truncated = True
-            break
+    for rel_path, abs_path in files_for_scan:
         try:
             size = os.path.getsize(abs_path)
             mtime = os.path.getmtime(abs_path)
@@ -498,9 +598,16 @@ def main() -> int:
             }
         )
 
-        if os.path.splitext(rel_path)[1].lower() in TEXT_EXTENSIONS or os.path.basename(
-            rel_path
-        ).lower() in IMPORTANT_FILENAMES:
+        ext = os.path.splitext(rel_path)[1].lower()
+        base = os.path.basename(rel_path).lower()
+        patterns = SYMBOL_PATTERNS.get(ext)
+        should_scan = (
+            patterns is not None
+            or base in IMPORTANT_FILENAMES
+            or ext in {".md", ".yml", ".yaml"}
+        )
+
+        if should_scan and total_bytes < args.max_total_bytes:
             line_count, file_symbols, bytes_read, truncated = scan_file(
                 rel_path,
                 abs_path,
@@ -515,6 +622,8 @@ def main() -> int:
                     total_bytes_truncated = True
                 else:
                     file_bytes_truncated = True
+            if total_bytes >= args.max_total_bytes:
+                total_bytes_truncated = True
             if line_count is not None:
                 line_counts[rel_path] = line_count
             if not symbols_truncated and file_symbols:
@@ -552,7 +661,17 @@ def main() -> int:
         if base in ENTRYPOINT_FILENAMES:
             score += 60
             reason = "entrypoint"
-        if "/src/" in f"/{path}" or "/core/" in f"/{path}":
+        path_norm = f"/{path}".lower()
+        if any(
+            token in path_norm
+            for token in (
+                "/src/",
+                "/sources/",
+                "/core/",
+                "/services/",
+                "/plugins/",
+            )
+        ):
             score += 15
             if reason == "other":
                 reason = "core"
@@ -585,7 +704,17 @@ def main() -> int:
         signals = []
         if count >= 400:
             signals.append("large")
-        if "/src/" in f"/{path}" or "/core/" in f"/{path}":
+        path_norm = f"/{path}".lower()
+        if any(
+            token in path_norm
+            for token in (
+                "/src/",
+                "/sources/",
+                "/core/",
+                "/services/",
+                "/plugins/",
+            )
+        ):
             signals.append("core")
         if signals:
             hotspots.append({"path": path, "signals": signals})

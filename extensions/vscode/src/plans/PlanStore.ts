@@ -2,8 +2,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-const DEVSHERPA_PLANS_DIR = ".DevSherpa_plans";
-const ACTIVE_PLAN_FILE = ".DevSherpa_active-plan.json";
+export const DEVSHERPA_DIR = ".devsherpa";
+export const DEVSHERPA_PLANS_DIR = path.join(DEVSHERPA_DIR, "plans");
+export const DEVSHERPA_SKILL_INTAKE_DIR = path.join(
+  DEVSHERPA_DIR,
+  "skill-intake",
+);
+const ACTIVE_PLAN_FILE = path.join(DEVSHERPA_DIR, "active-plan.json");
 
 const MAX_TITLE_LENGTH = 120;
 
@@ -80,6 +85,9 @@ export const ensureDirs = (repoRootPath: string) => {
     return;
   }
   fs.mkdirSync(path.join(root, DEVSHERPA_PLANS_DIR), { recursive: true });
+  fs.mkdirSync(path.join(root, DEVSHERPA_SKILL_INTAKE_DIR), {
+    recursive: true,
+  });
 };
 
 export const listPlans = (repoRootPath: string): string[] => {
@@ -172,6 +180,30 @@ export const createPlan = (repoRootPath: string, title: string): string => {
 - <bullets>
 `;
   fs.writeFileSync(fullPath, template, "utf-8");
+  return relPath;
+};
+
+export const createSkillIntakeArtifact = (
+  repoRootPath: string,
+  title: string,
+  payload: unknown,
+): string => {
+  const root = resolveRepoRoot(repoRootPath);
+  if (!root) {
+    throw new Error("Missing repo root");
+  }
+  ensureDirs(root);
+  const date = new Date().toISOString().slice(0, 10);
+  const slug = slugify(title);
+  let filename = `${date}_${slug}.json`;
+  let counter = 1;
+  while (fs.existsSync(path.join(root, DEVSHERPA_SKILL_INTAKE_DIR, filename))) {
+    counter += 1;
+    filename = `${date}_${slug}-${counter}.json`;
+  }
+  const relPath = path.join(DEVSHERPA_SKILL_INTAKE_DIR, filename);
+  const fullPath = path.join(root, relPath);
+  fs.writeFileSync(fullPath, JSON.stringify(payload, null, 2), "utf-8");
   return relPath;
 };
 
